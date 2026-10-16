@@ -1,0 +1,10 @@
+FNF BROWSER ENGINE
+==================
+Friday Night Funkin' engine that runs in the browser.
+
+- Character editor
+- Stage editor
+- Chart editor
+- Loads Codename-format JSON charts
+
+HTML / CSS / JS

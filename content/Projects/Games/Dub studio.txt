@@ -1,0 +1,8 @@
+DUB STUDIO
+==========
+Browser game about dubbing: record your voice
+over a video clip.
+
+- Waveform display
+- Loop a section
+- Replay your takes

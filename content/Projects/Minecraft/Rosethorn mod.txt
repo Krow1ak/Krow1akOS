@@ -1,0 +1,5 @@
+ROSETHORN
+=========
+Fabric mod ability (Java).
+Applies a timed curse that eats away at HP
+until it wears off. Handled by a curse manager.

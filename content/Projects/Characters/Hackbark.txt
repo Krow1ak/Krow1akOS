@@ -1,0 +1,11 @@
+HACKBARK
+========
+Original character by LaisaTheNeko.
+
+What he is:
+- write his species, look and personality here
+
+Minecraft:
+- Has his own Figura avatar (model + Lua scripts)
+
+See Arts > hackbark_palette.png for colour ideas.

@@ -1,0 +1,7 @@
+MODEL_BLEND AVATAR
+==================
+Figura avatar with an action wheel full of
+music + animation actions, and spring physics
+for the bouncy parts.
+
+Language: Lua (Figura API)

@@ -1,7 +1,0 @@
-FIGURA CHAT BUBBLE
-==================
-A Lua chat bubble system for a Figura avatar.
-Messages pop up above the head in a speech bubble
-instead of only showing in chat.
-
-Language: Lua (Figura API)

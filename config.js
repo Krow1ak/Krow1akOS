@@ -62,50 +62,20 @@ const DATES_FILE = 'content/dates.txt';
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
 
-const PROJECTS = folder('Projects', [
-  folder('Characters', [
-    text('Chaos.txt'),
-    text('Hackbark.txt'),
-  ]),
-  folder('Minecraft', [
-    text('Figura chat bubble.txt'),
-    text('model_blend avatar.txt'),
-    text('Rosethorn mod.txt'),
-    text('Fabric server.txt'),
-  ]),
-  folder('Games', [
-    text('FNF browser engine.txt'),
-    text('Dub studio.txt'),
-    text('Undertale multibox.txt'),
-  ]),
-  folder('Shaders', [
-    text('CF2.5 shaders.txt'),
-    text('GameMaker fire wall.txt'),
-  ]),
-]);
-
 const ARTS = folder('Arts', [
-  text('readme.txt'),
-  picture('chaos_scribbles.png',  'assets/arts/chaos_scribbles.png'),
-  picture('soul_heart.png',       'assets/arts/soul_heart.png'),
-  picture('pixel_firewall.png',   'assets/arts/pixel_firewall.png'),
-  picture('sunset_hills.png',     'assets/arts/sunset_hills.png'),
-  picture('shader_plasma.png',    'assets/arts/shader_plasma.png'),
-  picture('hackbark_palette.png', 'assets/arts/hackbark_palette.png'),
+  picture('soul_heart.png', 'assets/arts/soul_heart.png'),
 ], { art: true });
 
 const ABOUT = text('About me.txt');
 
-const RECYCLE_BIN = recycleBin([
-  text('old_ideas.txt'),
-]);
+const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  PROJECTS, ARTS, folder('Users', [ABOUT]),
+  ARTS, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), PROJECTS, ARTS, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;

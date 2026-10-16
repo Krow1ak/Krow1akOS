@@ -1,4 +1,0 @@
-CLICKTEAM FUSION 2.5 SHADERS
-============================
-HLSL / GLSL effects for CF2.5.
-Targets: DX9, DX11 and mobile.

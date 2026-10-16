@@ -15,6 +15,7 @@
   --font-mono:Consolas,"Lucida Console","DejaVu Sans Mono",monospace;
   color-scheme:light;
 }
+[hidden]{display:none!important}
 html,body{height:100%}
 body{margin:0;overflow:hidden;font:12px/1.35 var(--font-ui);color:var(--ink);user-select:none;-webkit-user-select:none;
   background:var(--wall-fallback) center/cover no-repeat}

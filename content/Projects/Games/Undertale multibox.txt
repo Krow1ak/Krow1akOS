@@ -1,4 +1,0 @@
-UNDERTALE MULTIBOX
-==================
-Clickteam Fusion 2.5 soul/arena mechanic with
-more than one combat box at a time.

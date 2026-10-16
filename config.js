@@ -57,8 +57,8 @@ const ASSETS = {
                 'cover' = one picture stretched over the whole window
                 '64px'  = tiles scaled to 64px wide */
 const WINDOW_LOOK = {
-  color:         'rgba(150,190,230,.62)',
-  inactiveColor: 'rgba(170,195,220,.48)',
+  color:         '#6a37b9',
+  inactiveColor: '#492583',
   texture:       '',
   textureSize:   'auto',
 };

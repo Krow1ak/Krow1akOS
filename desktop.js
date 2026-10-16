@@ -45,6 +45,11 @@ function loadText(n) {
 document.title = SITE_NAME;
 document.body.style.backgroundImage = `url("${ASSETS.wallpaper}")`;
 document.getElementById('taskbar').style.backgroundImage = `url("${ASSETS.taskbar}")`;
+const rootStyle = document.documentElement.style;
+if (WINDOW_LOOK.color) rootStyle.setProperty('--glass', WINDOW_LOOK.color);
+if (WINDOW_LOOK.inactiveColor) rootStyle.setProperty('--glass-dim', WINDOW_LOOK.inactiveColor);
+if (WINDOW_LOOK.texture) rootStyle.setProperty('--glass-texture', `url("${WINDOW_LOOK.texture}")`);
+if (WINDOW_LOOK.textureSize) rootStyle.setProperty('--glass-texture-size', WINDOW_LOOK.textureSize);
 document.querySelector('#orb').innerHTML = img(ASSETS.startOrb, '', 'Start');
 const wm = document.getElementById('watermark');
 if (ASSETS.watermark) wm.src = ASSETS.watermark; else wm.remove();

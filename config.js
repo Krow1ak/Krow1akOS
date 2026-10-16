@@ -47,6 +47,22 @@ const ASSETS = {
   },
 };
 
+/* ---------- WINDOW LOOK ----------
+   color / inactiveColor: frame color of the front window / windows behind it.
+     Any CSS color: '#ff88cc', 'rgb(255,136,204)', or 'rgba(255,136,204,.6)'
+     (the last number is see-through-ness: 0 = clear, 1 = solid).
+   texture: a picture drawn over the frame color, e.g. 'assets/ui/window-texture.png'.
+     '' = no texture. A see-through PNG lets the color show through.
+   textureSize: 'auto'  = picture at its real size, repeated like tiles
+                'cover' = one picture stretched over the whole window
+                '64px'  = tiles scaled to 64px wide */
+const WINDOW_LOOK = {
+  color:         'rgba(150,190,230,.62)',
+  inactiveColor: 'rgba(170,195,220,.48)',
+  texture:       '',
+  textureSize:   'auto',
+};
+
 /* Special dates for the calendar (click the clock) */
 const DATES_FILE = 'content/dates.txt';
 
@@ -66,16 +82,26 @@ const ARTS = folder('Arts', [
   picture('soul_heart.png', 'assets/arts/krow1ak.png'),
 ], { art: true });
 
+const CHUCHA = folder('Chucha', [
+  picture('chucha_1.webp', 'assets/chucha/chucha_1.webp'),
+  picture('chucha_2.webp', 'assets/chucha/chucha_2.webp'),
+  picture('chucha_3.webp', 'assets/chucha/chucha_3.webp'),
+  picture('chucha_4.webp', 'assets/chucha/chucha_4.webp'),
+  picture('chucha_5.webp', 'assets/chucha/chucha_5.webp'),
+  picture('chucha_6.webp', 'assets/chucha/chucha_6.webp'),
+  picture('chucha_7.webp', 'assets/chucha/chucha_7.webp'),
+], { art: true });
+
 const ABOUT = text('About me.txt');
 
 const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  ARTS, folder('Users', [ABOUT]),
+  ARTS, CHUCHA, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;

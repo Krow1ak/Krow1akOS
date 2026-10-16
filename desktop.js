@@ -654,16 +654,143 @@ function openWordle() {
 }
 
 /* ---------- desktop ---------- */
+// Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
+// and drag them to any cell; the layout is remembered in their browser.
 const dEl = document.getElementById('desktop');
-DESKTOP_ITEMS.forEach(n => {
+const GRID_W = 86, GRID_H = 94; // one icon cell + the gap, matches #desktop in style.css
+const icons = DESKTOP_ITEMS.map(n => {
   const d = el(`<div class="dicon" role="listitem" tabindex="0"><div class="ic">${img(iconSrc(n))}</div><div class="lb"></div></div>`);
-  d.querySelector('.lb').textContent = n.name;
-  d.onclick = e => { e.stopPropagation(); dEl.querySelectorAll('.dicon').forEach(x => x.classList.remove('sel')); d.classList.add('sel'); if (touchy) openNode(n); };
-  d.ondblclick = () => openNode(n);
-  d.onkeydown = e => { if (e.key === 'Enter') openNode(n); if (e.key === 'Delete') notHim(); };
-  dEl.append(d);
+  d.querySelector('.lb').textContent = n.name; d.node = n;
+  dEl.append(d); return d;
 });
-dEl.onclick = () => dEl.querySelectorAll('.dicon').forEach(x => x.classList.remove('sel'));
+let iconPos = store.get('desktop-pos', {}); // { name: [column, row] }
+
+function gridSize() {
+  const cs = getComputedStyle(dEl);
+  const w = dEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const h = dEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  return { cols: Math.max(1, Math.floor((w + 2) / GRID_W)), rows: Math.max(1, Math.floor((h + 2) / GRID_H)) };
+}
+const cellKey = (c, r) => c + ',' + r;
+function layout() {
+  const { cols, rows } = gridSize(), taken = new Set(), placed = new Map();
+  // saved spots that still fit on this screen
+  icons.forEach(d => {
+    const p = iconPos[d.node.name];
+    if (p && p[0] < cols && p[1] < rows && !taken.has(cellKey(...p))) { placed.set(d, p); taken.add(cellKey(...p)); }
+  });
+  // everything else takes the first free cell, top to bottom, then left to right
+  let c = 0, r = 0;
+  icons.forEach(d => {
+    if (placed.has(d)) return;
+    while (taken.has(cellKey(c, r))) if (++r >= rows) { r = 0; c++; }
+    placed.set(d, [c, r]); taken.add(cellKey(c, r));
+  });
+  placed.forEach(([c, r], d) => { d.cell = [c, r]; d.style.gridColumn = c + 1; d.style.gridRow = r + 1; });
+}
+function nearestFree(c, r, taken, cols, rows) {
+  c = Math.max(0, Math.min(cols - 1, c)); r = Math.max(0, Math.min(rows - 1, r));
+  for (let dist = 0; dist < cols + rows; dist++)
+    for (let dc = -dist; dc <= dist; dc++) for (let dr = -dist; dr <= dist; dr++) {
+      if (Math.max(Math.abs(dc), Math.abs(dr)) !== dist) continue;
+      const nc = c + dc, nr = r + dr;
+      if (nc >= 0 && nr >= 0 && nc < cols && nr < rows && !taken.has(cellKey(nc, nr))) return [nc, nr];
+    }
+  return [c, r];
+}
+function moveIcons(group, dc, dr) {
+  const { cols, rows } = gridSize();
+  const taken = new Set(icons.filter(d => !group.includes(d)).map(d => cellKey(...d.cell)));
+  icons.forEach(d => { if (!group.includes(d)) iconPos[d.node.name] = d.cell; }); // the other icons stay where they are
+  // the icon nearest the drop direction goes first so a group keeps its shape when it can
+  [...group].sort((a, b) => (b.cell[0] - a.cell[0]) * Math.sign(dc || 1) || (b.cell[1] - a.cell[1]) * Math.sign(dr || 1)).forEach(d => {
+    const spot = nearestFree(d.cell[0] + dc, d.cell[1] + dr, taken, cols, rows);
+    taken.add(cellKey(...spot)); iconPos[d.node.name] = spot;
+  });
+  store.set('desktop-pos', iconPos);
+  layout();
+}
+
+const selected = () => icons.filter(d => d.classList.contains('sel'));
+const selectOnly = list => icons.forEach(d => d.classList.toggle('sel', list.includes(d)));
+
+icons.forEach(d => {
+  const n = d.node;
+  let drag = null;
+  d.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.pointerType === 'touch') return;
+    e.stopPropagation(); closeCtx();
+    if (e.ctrlKey || e.metaKey) { d.classList.toggle('sel'); return; }
+    const wasSel = d.classList.contains('sel');
+    if (e.shiftKey) d.classList.add('sel'); else if (!wasSel) selectOnly([d]);
+    drag = { x: e.clientX, y: e.clientY, moving: false, wasSel, shift: e.shiftKey, group: selected() };
+    d.setPointerCapture(e.pointerId);
+  });
+  d.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moving && Math.hypot(dx, dy) < 5) return;
+    drag.moving = true;
+    drag.group.forEach(g => { g.classList.add('dragging'); g.style.transform = `translate(${dx}px, ${dy}px)`; });
+  });
+  const endDrag = e => {
+    if (!drag) return;
+    const { x, y, moving, wasSel, shift, group } = drag; drag = null;
+    group.forEach(g => { g.classList.remove('dragging'); g.style.transform = ''; });
+    if (moving && e.type === 'pointerup') moveIcons(group, Math.round((e.clientX - x) / GRID_W), Math.round((e.clientY - y) / GRID_H));
+    else if (!moving && wasSel && !shift && e.type === 'pointerup') selectOnly([d]);
+  };
+  d.addEventListener('pointerup', endDrag);
+  d.addEventListener('pointercancel', endDrag);
+  d.onclick = e => { e.stopPropagation(); if (touchy) { selectOnly([d]); openNode(n); } };
+  d.ondblclick = () => openNode(n);
+  d.onkeydown = e => {
+    if (e.key === 'Enter') openNode(n);
+    if (e.key === 'Delete') notHim();
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); selectOnly(icons); }
+  };
+});
+
+// drag a box on empty desktop to select icons (Ctrl adds to the selection)
+let box = null;
+dEl.addEventListener('pointerdown', e => {
+  closeCtx();
+  if (e.target !== dEl || e.button !== 0) return;
+  const base = e.ctrlKey || e.metaKey ? selected() : [];
+  selectOnly(base);
+  if (e.pointerType === 'touch') return;
+  const r0 = dEl.getBoundingClientRect();
+  box = { x: e.clientX, y: e.clientY, base, el: el('<div class="selbox"></div>'), r0 };
+  dEl.append(box.el); dEl.setPointerCapture(e.pointerId);
+});
+dEl.addEventListener('pointermove', e => {
+  if (!box) return;
+  const l = Math.min(box.x, e.clientX), t = Math.min(box.y, e.clientY), rr = Math.max(box.x, e.clientX), b = Math.max(box.y, e.clientY);
+  Object.assign(box.el.style, { left: l - box.r0.left + 'px', top: t - box.r0.top + 'px', width: rr - l + 'px', height: b - t + 'px' });
+  selectOnly([...box.base, ...icons.filter(d => { const q = d.getBoundingClientRect(); return q.left < rr && q.right > l && q.top < b && q.bottom > t; })]);
+});
+const endBox = () => { if (box) { box.el.remove(); box = null; } };
+dEl.addEventListener('pointerup', endBox);
+dEl.addEventListener('pointercancel', endBox);
+
+// right-click on empty desktop
+const ctx = el('<div class="drop ctx" hidden></div>');
+document.body.append(ctx);
+function closeCtx() { ctx.hidden = true; }
+dEl.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (e.target !== dEl) return closeCtx();
+  ctx.replaceChildren(...[
+    ['Select all', () => selectOnly(icons)],
+    ['Reset icon positions', () => { iconPos = {}; store.set('desktop-pos', iconPos); layout(); }],
+  ].map(([label, fn]) => { const b = el('<button></button>'); b.textContent = label; b.onclick = () => { closeCtx(); fn(); }; return b; }));
+  ctx.hidden = false;
+  ctx.style.left = Math.min(e.clientX, innerWidth - ctx.offsetWidth - 4) + 'px';
+  ctx.style.top = Math.min(e.clientY, innerHeight - ctx.offsetHeight - 4) + 'px';
+});
+document.addEventListener('pointerdown', e => { if (!ctx.hidden && !ctx.contains(e.target)) closeCtx(); });
+addEventListener('resize', layout);
+layout();
 
 /* ---------- start menu ---------- */
 const start = document.getElementById('start'), orb = document.getElementById('orb');

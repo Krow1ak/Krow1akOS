@@ -31,6 +31,9 @@ img{-webkit-user-drag:none}
 .dicon .lb{font-size:12px;line-height:1.2;word-break:break-word}
 .dicon:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25)}
 .dicon.sel,.dicon:focus-visible{background:rgba(160,210,255,.32);border-color:rgba(220,240,255,.6)}
+.dicon.dragging{position:relative;z-index:2;opacity:.8}
+.selbox{position:absolute;border:1px solid rgba(140,200,255,.95);background:rgba(90,160,240,.28);pointer-events:none;z-index:3}
+.drop.ctx{position:fixed;top:0;z-index:99002}
 
 /* windows */
 .win{position:absolute;display:flex;flex-direction:column;min-width:260px;min-height:140px;border-radius:7px;padding:0 7px 7px;

@@ -1,0 +1,6 @@
+# Lines starting with # are ignored
+10-31 | Halloween | Spooky season!
+12-25 | Christmas | Merry Christmas!
+12-25 | My birthday | It's my birthday :)
+06-01 | Summer | FREEEEDOOOOOOMMMM!
+09-01 | University | Jail Time

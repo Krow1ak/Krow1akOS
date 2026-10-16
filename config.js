@@ -4,11 +4,11 @@
    asset paths, your name, the popup text, folders and notes.
    ============================================================ */
 
-const SITE_NAME = 'LaisaOS';
-const OWNER_NAME = 'LaisaTheNeko';
+const SITE_NAME = 'KrowOS';
+const OWNER_NAME = 'You';
 
 /* Shown when a visitor tries to type, add pictures, etc. */
-const NOT_HIM_MESSAGE = 'You are not him :)';
+const NOT_HIM_MESSAGE = 'You are not HIM :)';
 
 /* ---------- ASSETS ----------
    To swap one: drop your file into the same folder with the same name,
@@ -63,7 +63,7 @@ const DATES_FILE = 'content/dates.txt';
    To edit what a note says, just edit its .txt file in the content folder. */
 
 const ARTS = folder('Arts', [
-  picture('soul_heart.png', 'assets/arts/soul_heart.png'),
+  picture('soul_heart.png', 'assets/arts/krow1ak.png'),
 ], { art: true });
 
 const ABOUT = text('About me.txt');

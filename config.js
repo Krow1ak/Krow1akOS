@@ -31,6 +31,8 @@ const ASSETS = {
     notepad:     'assets/icons/notepad.svg',
     photoViewer: 'assets/icons/photo-viewer.svg',
     info:        'assets/icons/info.svg',
+    video:       'assets/icons/video.svg',
+    minesweeper: 'assets/icons/minesweeper.svg',
   },
 
   ui: {
@@ -75,10 +77,18 @@ const DATES_FILE = 'content/dates.txt';
                                              ->  content/Projects/Games/Dub studio.txt
    text('Name.txt', { file: 'content/other/place.txt' })   read from a specific file instead
    picture('name.png', 'assets/arts/name.png')   a picture
+   picture('name.png', '...', { pixel:true })   pixel art: stays sharp instead of smoothed
+   video('name.mp4', 'assets/videos/name.mp4')   a video (mp4 or webm; keep each file under 50 MB)
+   video('name.mp4', '...', { poster: 'assets/videos/name.jpg' })   picture shown before it plays
+   minesweeper()                           the Minesweeper game
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
 
 const ARTS = folder('Arts', [
+  folder('WIZ', [
+    picture('wiz_1.webp', 'assets/arts/wiz/wiz_1.webp'),
+    picture('wiz_2.png',  'assets/arts/wiz/wiz_2.png'),
+  ], { art: true }),
   picture('soul_heart.png', 'assets/arts/krow1ak.png'),
 ], { art: true });
 
@@ -92,6 +102,8 @@ const CHUCHA = folder('Chucha', [
   picture('chucha_7.webp', 'assets/chucha/chucha_7.webp'),
 ], { art: true });
 
+const MINESWEEPER = minesweeper();
+
 const ABOUT = text('About me.txt');
 
 const RECYCLE_BIN = recycleBin([]);
@@ -101,7 +113,7 @@ const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MINESWEEPER, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;
@@ -111,6 +123,8 @@ const OPEN_ON_START = ABOUT;
 function folder(name, children, opts = {}) { return { name, type: 'folder', children, ...opts }; }
 function text(name, opts = {}) { return { name, type: 'txt', ...opts }; }
 function picture(name, src, opts = {}) { return { name, type: 'img', src, ...opts }; }
+function video(name, src, opts = {}) { return { name, type: 'video', src, ...opts }; }
+function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweeper', ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }
 function computer(children, opts = {}) { return { name: 'Computer', type: 'computer', children, ...opts }; }
 function recycleBin(children, opts = {}) { return { name: 'Recycle Bin', type: 'bin', children, ...opts }; }

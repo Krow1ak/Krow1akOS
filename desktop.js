@@ -7,15 +7,17 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
+  if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper }[n.type] || I.textFile;
 }
-const iconFor = n => img(iconSrc(n), n.type === 'img' && !n.icon ? 'th' : 'ico');
+const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
+const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
 function pathTo(target, n = desktop, acc = []) {
   const p = [...acc, n]; if (n === target) return p;
   for (const c of n.children || []) if (isFolder(c)) { const r = pathTo(target, c, p); if (r) return r; }
@@ -130,6 +132,8 @@ function openNode(n, folder) {
   if (isFolder(n)) return openExplorer(n);
   if (n.type === 'txt') return openNotepad(n);
   if (n.type === 'img') return openViewer(n, folder || parentOf(n) || desktop);
+  if (n.type === 'video') return openVideo(n);
+  if (n.type === 'minesweeper') return openMinesweeper();
 }
 function parentOf(target, n = desktop) {
   for (const c of n.children || []) { if (c === target) return n; if (c.children) { const p = parentOf(target, c); if (p) return p; } }
@@ -227,7 +231,13 @@ function openNotepad(n) {
     Format: [['Word Wrap', () => { wrap = !wrap; ta.classList.toggle('nowrap', !wrap); }, () => wrap]],
     View: [['Zoom In', () => setZoom(zoom + 10)], ['Zoom Out', () => setZoom(zoom - 10)], ['Restore Default Zoom', () => setZoom(100)]],
   };
-  const bar = W.body.querySelector('.menu'); let dd = null;
+  menuBar(W, W.body.querySelector('.menu'), menus);
+  return W;
+}
+
+// menus: { Name: [[label, fn, isChecked?], ...] }
+function menuBar(W, bar, menus) {
+  let dd = null;
   const closeDD = () => { dd && dd.remove(); dd = null; bar.querySelectorAll('.mi').forEach(m => m.classList.remove('open')); };
   Object.entries(menus).forEach(([name, items]) => {
     const b = el(`<button class="mi">${name}</button>`); bar.append(b);
@@ -240,8 +250,8 @@ function openNotepad(n) {
   });
   const outside = e => { if (dd && !bar.contains(e.target)) closeDD(); };
   document.addEventListener('pointerdown', outside);
-  W.onClose = () => document.removeEventListener('pointerdown', outside);
-  return W;
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); document.removeEventListener('pointerdown', outside); };
 }
 
 function openViewer(n, folder, auto) {
@@ -250,7 +260,17 @@ function openViewer(n, folder, auto) {
   const view = W.body.querySelector('.pv img'); let timer = null;
   const list = () => folder.children.filter(c => c.type === 'img');
   let i = Math.max(0, list().indexOf(n));
-  const show = () => { const l = list(); if (!l.length) return; i = (i + l.length) % l.length; view.src = l[i].src; view.alt = l[i].name; W.setTitle(`${l[i].name} - Photo Viewer`); W.body.querySelector('.pvname').textContent = `${i + 1} of ${l.length}`; };
+  // fit the window to the first picture's shape (tall photos get a tall window)
+  view.addEventListener('load', () => {
+    if (innerWidth <= 640 || W.el.classList.contains('max')) return;
+    const pv = W.body.querySelector('.pv'), exW = W.el.offsetWidth - pv.clientWidth, exH = W.el.offsetHeight - pv.clientHeight;
+    const s = Math.min(1, (innerWidth * 0.85 - exW - 24) / view.naturalWidth, ((innerHeight - 40) * 0.88 - exH - 24) / view.naturalHeight);
+    const w = Math.max(380, Math.round(view.naturalWidth * s) + 24 + exW), h = Math.round(view.naturalHeight * s) + 24 + exH;
+    Object.assign(W.el.style, { width: w + 'px', height: h + 'px',
+      left: Math.max(10, Math.min(innerWidth - w - 10, W.el.offsetLeft + (W.el.offsetWidth - w) / 2)) + 'px',
+      top: Math.max(8, Math.min(innerHeight - 40 - h - 8, W.el.offsetTop + (W.el.offsetHeight - h) / 2)) + 'px' });
+  }, { once: true });
+  const show = () => { const l = list(); if (!l.length) return; i = (i + l.length) % l.length; view.src = l[i].src; view.alt = l[i].name; view.classList.toggle('px', !!l[i].pixel); W.setTitle(`${l[i].name} - Photo Viewer`); W.body.querySelector('.pvname').textContent = `${i + 1} of ${l.length}`; };
   W.body.querySelector('.pr').onclick = () => { i--; show(); };
   W.body.querySelector('.nx').onclick = () => { i++; show(); };
   const pl = W.body.querySelector('.pl');
@@ -261,6 +281,140 @@ function openViewer(n, folder, auto) {
   pl.onclick = toggle; W.onClose = () => clearInterval(timer);
   W.el.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') { i--; show(); } if (e.key === 'ArrowRight') { i++; show(); } });
   show(); if (auto) toggle(); return W;
+}
+
+function openVideo(n) {
+  const W = makeWin({ title: `${n.name} - Video Player`, icon: I.video, w: 680, h: 460 });
+  W.body.innerHTML = '<div class="vp"><video controls autoplay playsinline preload="metadata"></video></div>';
+  const v = W.body.querySelector('video');
+  if (n.poster) v.poster = n.poster;
+  v.onerror = () => { const e = el('<div class="vp-err"></div>'); e.textContent = `Couldn't play ${n.src}`; W.body.querySelector('.vp').replaceChildren(e); };
+  v.src = n.src;
+  W.onClose = () => { v.pause(); v.removeAttribute('src'); v.load(); };
+  return W;
+}
+
+/* ---------- minesweeper ---------- */
+const MS_LEVELS = { Beginner: [9, 9, 10], Intermediate: [16, 16, 40], Expert: [30, 16, 99] };
+const MS_CELL = 24;
+let msWin = null;
+function openMinesweeper() {
+  if (msWin) { focusWin(msWin); return msWin; }
+  const W = makeWin({ title: 'Minesweeper', icon: I.minesweeper, w: 9 * MS_CELL + 40, h: 9 * MS_CELL + 140 });
+  W.body.innerHTML = '<div class="menu"></div><div class="ms"><div class="ms-in"><div class="ms-panel"><span class="ms-led ms-left"></span><button class="ms-face" aria-label="New game"></button><span class="ms-led ms-time"></span></div><div class="ms-grid" role="grid" aria-label="Minefield"></div></div></div>';
+  const grid = W.body.querySelector('.ms-grid'), face = W.body.querySelector('.ms-face');
+  const ledLeft = W.body.querySelector('.ms-left'), ledTime = W.body.querySelector('.ms-time');
+  const FACE = { ok: '🙂', press: '😮', win: '😎', lose: '😵' };
+  let level = 'Beginner', cols, rows, mines, cells, started, over, opened, flags, time, timer = null;
+  const led = n => String(Math.max(-99, Math.min(999, n))).padStart(3, '0');
+  const around = i => {
+    const x = i % cols, y = (i / cols) | 0, out = [];
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if ((dx || dy) && nx >= 0 && ny >= 0 && nx < cols && ny < rows) out.push(ny * cols + nx);
+    }
+    return out;
+  };
+  const stopTimer = () => { clearInterval(timer); timer = null; };
+
+  function newGame(lv = level) {
+    level = lv; [cols, rows, mines] = MS_LEVELS[level];
+    stopTimer(); started = over = false; opened = flags = time = 0;
+    cells = Array.from({ length: cols * rows }, () => ({ mine: false, open: false, flag: false, n: 0 }));
+    grid.style.gridTemplateColumns = `repeat(${cols}, ${MS_CELL}px)`;
+    grid.replaceChildren(...cells.map((_, i) => { const c = el('<div class="ms-c" role="gridcell"></div>'); c.dataset.i = i; return c; }));
+    face.textContent = FACE.ok; ledLeft.textContent = led(mines); ledTime.textContent = led(0);
+    fitWindow();
+  }
+  function fitWindow() {
+    if (innerWidth <= 640 || W.el.classList.contains('max')) return;
+    const box = W.body.querySelector('.ms'), inner = W.body.querySelector('.ms-in');
+    const w = W.el.offsetWidth - box.clientWidth + inner.offsetWidth + 16;
+    const h = W.el.offsetHeight - box.clientHeight + inner.offsetHeight + 16;
+    W.el.style.width = Math.min(w, innerWidth - 20) + 'px'; W.el.style.height = Math.min(h, innerHeight - 60) + 'px';
+    W.el.style.left = Math.max(10, Math.min(W.el.offsetLeft, innerWidth - W.el.offsetWidth - 10)) + 'px';
+    W.el.style.top = Math.max(8, Math.min(W.el.offsetTop, innerHeight - 40 - W.el.offsetHeight - 8)) + 'px';
+  }
+  function layMines(safe) { // first click is never a mine, and opens an area
+    const keep = new Set([safe, ...around(safe)]);
+    const spots = cells.map((_, i) => i).filter(i => !keep.has(i));
+    for (let k = 0; k < mines; k++) { const j = k + Math.floor(Math.random() * (spots.length - k)); [spots[k], spots[j]] = [spots[j], spots[k]]; cells[spots[k]].mine = true; }
+    cells.forEach((c, i) => { c.n = around(i).filter(j => cells[j].mine).length; });
+  }
+  function draw(i) {
+    const c = cells[i], d = grid.children[i];
+    d.className = 'ms-c' + (c.open ? ' open' : '') + (c.open && c.n && !c.mine ? ' n' + c.n : '');
+    d.textContent = c.flag && !c.open ? '🚩' : c.open && c.mine ? '💣' : c.open && c.n ? c.n : '';
+  }
+  function open(i) {
+    if (over || cells[i].flag || cells[i].open) return;
+    if (!started) { started = true; layMines(i); timer = setInterval(() => { ledTime.textContent = led(++time); }, 1000); ledTime.textContent = led(time = 1); }
+    if (cells[i].mine) return lose(i);
+    const stack = [i];
+    while (stack.length) {
+      const j = stack.pop(), c = cells[j];
+      if (c.open || c.flag) continue;
+      c.open = true; opened++; draw(j);
+      if (!c.n) stack.push(...around(j));
+    }
+    if (opened === cells.length - mines) win();
+  }
+  function chord(i) { // clicking an opened number with enough flags around opens the rest
+    const c = cells[i];
+    if (!c.open || !c.n || over) return;
+    const ns = around(i);
+    if (ns.filter(j => cells[j].flag).length === c.n) ns.forEach(open);
+  }
+  function toggleFlag(i) {
+    const c = cells[i];
+    if (over || c.open) return;
+    c.flag = !c.flag; flags += c.flag ? 1 : -1; ledLeft.textContent = led(mines - flags); draw(i);
+  }
+  function lose(i) {
+    over = true; stopTimer(); face.textContent = FACE.lose;
+    cells.forEach((c, j) => {
+      if (c.mine && !c.flag) { c.open = true; draw(j); }
+      else if (c.flag && !c.mine) { grid.children[j].textContent = '❌'; }
+    });
+    grid.children[i].classList.add('boom');
+  }
+  function win() {
+    over = true; stopTimer(); face.textContent = FACE.win;
+    cells.forEach((c, j) => { if (c.mine && !c.flag) { c.flag = true; draw(j); } });
+    ledLeft.textContent = led(0);
+  }
+
+  // mouse: left opens, right flags, left on a number chords. touch: tap opens, hold flags.
+  let hold = null, held = false;
+  const cellOf = e => { const d = e.target.closest('.ms-c'); return d ? +d.dataset.i : -1; };
+  grid.addEventListener('contextmenu', e => e.preventDefault());
+  grid.addEventListener('pointerdown', e => {
+    const i = cellOf(e); if (i < 0 || over) return;
+    if (e.button === 2) { toggleFlag(i); return; }
+    if (e.button !== 0) return;
+    face.textContent = FACE.press; held = false;
+    if (e.pointerType !== 'mouse') hold = setTimeout(() => { held = true; toggleFlag(i); face.textContent = FACE.ok; }, 400);
+  });
+  grid.addEventListener('pointerup', e => {
+    clearTimeout(hold);
+    const i = cellOf(e); if (e.button !== 0 || over) return;
+    face.textContent = FACE.ok;
+    if (held || i < 0) return;
+    cells[i].open ? chord(i) : open(i);
+  });
+  grid.addEventListener('pointerleave', () => { clearTimeout(hold); if (!over) face.textContent = FACE.ok; });
+  face.onclick = () => newGame();
+
+  menuBar(W, W.body.querySelector('.menu'), {
+    Game: [['New', () => newGame()],
+      ...Object.keys(MS_LEVELS).map(lv => [lv, () => newGame(lv), () => level === lv]),
+      ['Close', () => closeWin(W)]],
+  });
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); stopTimer(); msWin = null; };
+  msWin = W;
+  newGame();
+  return W;
 }
 
 /* ---------- desktop ---------- */
@@ -279,7 +433,8 @@ dEl.onclick = () => dEl.querySelectorAll('.dicon').forEach(x => x.classList.remo
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => n.type === 'folder' || n.type === 'txt').map(n => [n, n.type === 'txt' ? 'Text document' : `${n.children.length} items`]);
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'video'].includes(n.type))
+  .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {
   const b = el(`<button class="sm-item">${img(iconSrc(n))}<span><span class="nm"></span><small>${esc(sub)}</small></span></button>`);

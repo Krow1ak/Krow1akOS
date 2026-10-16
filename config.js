@@ -47,6 +47,8 @@ const ASSETS = {
     next:     'assets/ui/next.svg',
     play:     'assets/ui/play.svg',
     pause:    'assets/ui/pause.svg',
+    volume:   'assets/ui/volume.svg',
+    mute:     'assets/ui/volume-mute.svg',
   },
 };
 
@@ -64,6 +66,18 @@ const WINDOW_LOOK = {
   inactiveColor: '#492583',
   texture:       '',
   textureSize:   'auto',
+};
+
+/* ---------- SOUND ----------
+   music: background track that loops. Browsers only allow sound after the visitor
+     clicks or presses a key, so it starts then. '' = no music (hides the speaker button).
+   musicVolume / videoVolume: 0 = silent, 0.35 = 35%, 1 = full.
+   Visitors change the music volume with the speaker button next to the clock;
+   their choice is remembered in their browser. */
+const SOUND = {
+  music:       'assets/music/corrupted.mp3',
+  musicVolume: 0.35,
+  videoVolume: 0.35,
 };
 
 /* Special dates for the calendar (click the clock) */

@@ -288,6 +288,7 @@ function openVideo(n) {
   const W = makeWin({ title: `${n.name} - Video Player`, icon: I.video, w: 680, h: 460 });
   W.body.innerHTML = '<div class="vp"><video controls autoplay playsinline preload="metadata"></video></div>';
   const v = W.body.querySelector('video');
+  v.volume = SOUND.videoVolume;
   if (n.poster) v.poster = n.poster;
   v.onerror = () => { const e = el('<div class="vp-err"></div>'); e.textContent = `Couldn't play ${n.src}`; W.body.querySelector('.vp').replaceChildren(e); };
   v.src = n.src;
@@ -691,7 +692,7 @@ document.getElementById('peek').onclick = () => {
 /* ---------- shut down ---------- */
 const off = document.getElementById('off'), offMsg = document.getElementById('off-msg');
 document.getElementById('shut').onclick = () => {
-  closeStart(); off.hidden = false; off.style.cursor = 'default';
+  closeStart(); setMusic(false); off.hidden = false; off.style.cursor = 'default';
   offMsg.innerHTML = '<div class="spin"></div>Shutting down...';
   setTimeout(() => {
     [...wins].forEach(closeWin); off.style.background = '#000'; off.style.cursor = 'pointer'; off.dataset.ready = 1;
@@ -701,7 +702,7 @@ document.getElementById('shut').onclick = () => {
 off.onclick = () => {
   if (!off.dataset.ready) return; delete off.dataset.ready; off.style.background = ''; off.style.cursor = 'default';
   offMsg.innerHTML = `${img(ASSETS.startOrb, '')}Starting ${esc(SITE_NAME)}<div class="spin"></div>`;
-  setTimeout(() => { off.hidden = true; if (OPEN_ON_START) openNode(OPEN_ON_START); }, 1500);
+  setTimeout(() => { off.hidden = true; setMusic(true); if (OPEN_ON_START) openNode(OPEN_ON_START); }, 1500);
 };
 
 /* ---------- clock + calendar ---------- */
@@ -769,7 +770,7 @@ document.getElementById('cal-prev').onclick = () => { calSt.m--; if (calSt.m < 0
 document.getElementById('cal-next').onclick = () => { calSt.m++; if (calSt.m > 11) { calSt.m = 0; calSt.y++; } renderCal(); };
 document.getElementById('cal-long').onclick = () => { const n = new Date(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); };
 tray.onclick = e => {
-  e.stopPropagation(); closeStart();
+  e.stopPropagation(); closeStart(); closeVol();
   if (cal.hidden) { const n = new Date(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); drawHands(); }
   cal.hidden = !cal.hidden; tray.classList.toggle('on', !cal.hidden);
 };
@@ -792,6 +793,44 @@ function tick() {
   if (!cal.hidden) drawHands();
 }
 tick(); setInterval(tick, 1000);
+
+/* ---------- sound ---------- */
+const volBtn = document.getElementById('vol'), volPop = document.getElementById('volpop');
+const volRange = document.getElementById('vol-range'), volPct = document.getElementById('vol-pct'), volMute = document.getElementById('vol-mute');
+const music = SOUND.music ? new Audio() : null;
+const snd = store.get('sound', { volume: SOUND.musicVolume, muted: false }); // the visitor's own choice wins
+let musicOn = true;
+if (music) { music.loop = true; music.preload = 'none'; music.src = SOUND.music; }
+function applyVolume() {
+  const v = Math.round(snd.volume * 100), icon = snd.muted || !v ? U.mute : U.volume;
+  if (music) { music.volume = snd.volume; music.muted = snd.muted; }
+  volRange.value = v; volPct.textContent = v;
+  volBtn.innerHTML = img(icon, ''); volMute.innerHTML = img(icon, '');
+  volBtn.title = snd.muted ? 'Speakers: muted' : `Speakers: ${v}%`;
+  volMute.setAttribute('aria-label', snd.muted ? 'Unmute' : 'Mute');
+  store.set('sound', snd);
+}
+// browsers only allow sound once the visitor has clicked or pressed a key
+function playMusic() { if (music && musicOn && music.paused) music.play().catch(() => {}); }
+function setMusic(on) { musicOn = on; if (on) playMusic(); else if (music) music.pause(); }
+['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, playMusic, true));
+if (!music) volBtn.hidden = true;
+
+const closeVol = () => { volPop.hidden = true; volBtn.classList.remove('on'); };
+volBtn.onclick = e => {
+  e.stopPropagation(); closeStart();
+  if (!cal.hidden) { cal.hidden = true; tray.classList.remove('on'); }
+  if (!volPop.hidden) return closeVol();
+  volPop.hidden = false; volBtn.classList.add('on');
+  const r = volBtn.getBoundingClientRect();
+  volPop.style.left = Math.max(4, Math.min(innerWidth - volPop.offsetWidth - 4, r.left + r.width / 2 - volPop.offsetWidth / 2)) + 'px';
+  volRange.focus();
+};
+document.addEventListener('pointerdown', e => { if (!volPop.hidden && !volPop.contains(e.target) && !volBtn.contains(e.target)) closeVol(); });
+volRange.oninput = () => { snd.volume = volRange.value / 100; snd.muted = false; applyVolume(); };
+volMute.onclick = () => { snd.muted = !snd.muted; applyVolume(); };
+volBtn.addEventListener('wheel', e => { e.preventDefault(); snd.volume = Math.max(0, Math.min(1, snd.volume + (e.deltaY < 0 ? 0.05 : -0.05))); snd.muted = false; applyVolume(); }, { passive: false });
+applyVolume();
 
 if (OPEN_ON_START) openNode(OPEN_ON_START);
 })();

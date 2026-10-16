@@ -209,6 +209,19 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .tk:hover{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3)}
 .tk.on{background:linear-gradient(rgba(255,255,255,.35),rgba(255,255,255,.12));border-color:rgba(255,255,255,.5);box-shadow:inset 0 0 6px rgba(150,220,255,.6)}
 #tray{flex:none;height:38px;display:flex;flex-direction:column;justify-content:center;font:inherit;color:#fff;text-align:center;padding:0 10px;font-size:11.5px;line-height:1.3;font-variant-numeric:tabular-nums;text-shadow:0 1px 2px #000;background:none;border:1px solid transparent;border-radius:3px;cursor:pointer}
+#vol{width:30px;height:38px;flex:none;display:grid;place-items:center;padding:0;background:none;border:1px solid transparent;border-radius:3px;cursor:pointer}
+#vol img{width:18px;height:18px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.8))}
+#vol:hover,#vol.on{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3)}
+#volpop{position:fixed;bottom:40px;z-index:99001;padding:6px;border-radius:8px 8px 0 0;
+  border:1px solid rgba(0,0,0,.6);box-shadow:0 0 0 1px rgba(255,255,255,.4) inset,0 6px 24px rgba(0,0,0,.5);
+  background:rgba(40,70,105,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.vol-in{width:64px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 4px;background:linear-gradient(#fff,#f1f6fb);border:1px solid #5d7896;border-radius:4px}
+.vol-lb{font-size:11px;color:var(--ink-soft)}
+#vol-range{writing-mode:vertical-lr;direction:rtl;width:24px;height:130px;margin:0;accent-color:#3a8fd6;cursor:pointer}
+#vol-pct{font-size:12px;font-variant-numeric:tabular-nums}
+#vol-mute{width:32px;height:28px;display:grid;place-items:center;padding:0;border:1px solid transparent;border-radius:3px;background:none;cursor:pointer}
+#vol-mute:hover{background:#e5f1fb;border-color:#a8cdee}
+#vol-mute img{width:18px;height:18px;filter:invert(.7)}
 #tray:hover,#tray.on{background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.3)}
 
 /* calendar flyout */

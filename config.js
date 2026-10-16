@@ -110,6 +110,13 @@ const CHUCHA = folder('Chucha', [
   picture('chucha_8.webp', 'assets/chucha/chucha_8.webp'),
 ], { art: true });
 
+const MEMES = folder('Memes', [
+  picture('meme_1.png', 'assets/memes/meme_1.png'),
+  picture('meme_2.png', 'assets/memes/meme_2.png'),
+  picture('meme_3.png', 'assets/memes/meme_3.png'),
+  picture('meme_4.png', 'assets/memes/meme_4.png'),
+], { art: true });
+
 const MINESWEEPER = minesweeper();
 
 const ABOUT = text('About me.txt');
@@ -117,11 +124,11 @@ const ABOUT = text('About me.txt');
 const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  ARTS, CHUCHA, folder('Users', [ABOUT]),
+  ARTS, CHUCHA, MEMES, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MINESWEEPER, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, MINESWEEPER, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;

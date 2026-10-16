@@ -100,6 +100,7 @@ const CHUCHA = folder('Chucha', [
   picture('chucha_5.webp', 'assets/chucha/chucha_5.webp'),
   picture('chucha_6.webp', 'assets/chucha/chucha_6.webp'),
   picture('chucha_7.webp', 'assets/chucha/chucha_7.webp'),
+  picture('chucha_8.webp', 'assets/chucha/chucha_8.webp'),
 ], { art: true });
 
 const MINESWEEPER = minesweeper();

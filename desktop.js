@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -135,6 +135,8 @@ function openNode(n, folder) {
   if (n.type === 'video') return openVideo(n);
   if (n.type === 'minesweeper') return openMinesweeper();
   if (n.type === 'wordle') return openWordle();
+  if (n.type === 'paint') return openPaint();
+  if (n.type === 'pinball') return openPinball();
 }
 function parentOf(target, n = desktop) {
   for (const c of n.children || []) { if (c === target) return n; if (c.children) { const p = parentOf(target, c); if (p) return p; } }
@@ -653,6 +655,289 @@ function openWordle() {
   return W;
 }
 
+/* ---------- paint ---------- */
+const PAINT_COLORS = ['#000000', '#7f7f7f', '#880015', '#ed1c24', '#ff7f27', '#fff200', '#22b14c', '#00a2e8', '#3f48cc', '#a349a4',
+  '#ffffff', '#c3c3c3', '#b97a57', '#ffaec9', '#ffc90e', '#efe4b0', '#b5e61d', '#99d9ea', '#7092be', '#c8bfe7'];
+const PAINT_TOOLS = [['pencil', '✏️', 'Pencil'], ['brush', '🖌️', 'Brush'], ['eraser', '🧽', 'Eraser'], ['fill', '🪣', 'Fill with color'],
+  ['picker', '💧', 'Color picker'], ['line', '╱', 'Line'], ['rect', '▭', 'Rectangle'], ['ellipse', '◯', 'Ellipse']];
+const PAINT_SIZES = [2, 5, 10, 20];
+const FREEHAND = ['pencil', 'brush', 'eraser'];
+function openPaint() {
+  const W = makeWin({ title: 'Untitled - Paint', icon: I.paint, w: 880, h: 620 });
+  W.body.innerHTML = '<div class="pt-tools"><div class="pt-g pt-set"></div><div class="pt-g pt-sizes"></div>'
+    + '<div class="pt-g"><span class="pt-sw c1" title="Color 1 (left mouse button)"></span><span class="pt-sw c2" title="Color 2 (right mouse button)"></span></div>'
+    + '<div class="pt-g"><div class="pt-pal"></div><input type="color" class="pt-custom" title="Pick any color for color 1" aria-label="Custom color"></div>'
+    + '<div class="pt-g pt-act"></div></div>'
+    + '<div class="pt-area"><div class="pt-stage"><canvas class="pt-c" width="800" height="480"></canvas><canvas class="pt-o" width="800" height="480"></canvas></div></div>'
+    + '<div class="status"><span class="pt-pos">Left click: color 1 · right click: color 2</span><span>800 × 480px</span></div>';
+  const q = sel => W.body.querySelector(sel);
+  const cv = q('.pt-c'), ov = q('.pt-o'), g = cv.getContext('2d', { willReadFrequently: true }), go = ov.getContext('2d');
+  let tool = 'pencil', size = 5, c1 = '#000000', c2 = '#ffffff', drawing = null;
+  const undo = [], redo = [];
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height);
+
+  const btn = (cls, html, title, fn) => { const b = el(`<button class="${cls}"></button>`); b.innerHTML = html; b.title = title; b.setAttribute('aria-label', title); b.onclick = fn; return b; };
+  const toolBtns = PAINT_TOOLS.map(([id, icon, title]) => { const b = btn('pt-b', esc(icon), title, () => { tool = id; refresh(); }); b.dataset.t = id; return b; });
+  q('.pt-set').append(...toolBtns);
+  const sizeBtns = PAINT_SIZES.map(s => { const b = btn('pt-b', `<i style="width:${Math.min(s, 18)}px;height:${Math.min(s, 18)}px"></i>`, `Size ${s}px`, () => { size = s; refresh(); }); b.dataset.s = s; return b; });
+  q('.pt-sizes').append(...sizeBtns);
+  q('.pt-pal').append(...PAINT_COLORS.map(c => {
+    const b = el('<button></button>'); b.style.background = c; b.title = c + ' (left: color 1, right: color 2)';
+    b.onclick = () => { c1 = c; refresh(); };
+    b.oncontextmenu = e => { e.preventDefault(); c2 = c; refresh(); };
+    return b;
+  }));
+  q('.pt-custom').oninput = e => { c1 = e.target.value; refresh(); };
+  q('.pt-act').append(
+    btn('tbtn', 'Undo', 'Undo (Ctrl+Z)', () => doUndo()),
+    btn('tbtn', 'Redo', 'Redo (Ctrl+Y)', () => doRedo()),
+    btn('tbtn', 'Clear', 'Clear the picture', () => { snap(); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); }),
+    btn('tbtn', 'Save', 'Save as PNG', () => cv.toBlob(b => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'drawing.png'; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    })));
+  function refresh() {
+    toolBtns.forEach(b => b.classList.toggle('on', b.dataset.t === tool));
+    sizeBtns.forEach(b => b.classList.toggle('on', +b.dataset.s === size));
+    q('.c1').style.background = c1; q('.c2').style.background = c2;
+    cv.style.cursor = tool === 'fill' || tool === 'picker' ? 'pointer' : 'crosshair';
+  }
+  refresh();
+
+  const all = () => g.getImageData(0, 0, cv.width, cv.height);
+  function snap() { undo.push(all()); if (undo.length > 30) undo.shift(); redo.length = 0; }
+  function doUndo() { if (undo.length) { redo.push(all()); g.putImageData(undo.pop(), 0, 0); } }
+  function doRedo() { if (redo.length) { undo.push(all()); g.putImageData(redo.pop(), 0, 0); } }
+  const width = () => tool === 'pencil' ? 2 : tool === 'eraser' ? size * 2 : size;
+  const at = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  function stroke(ctx, kind, x1, y1, x2, y2, color, w) {
+    ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
+    if (kind === 'rect') ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+    else if (kind === 'ellipse') ctx.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.abs(x2 - x1) / 2, Math.abs(y2 - y1) / 2, 0, 0, Math.PI * 2);
+    else { ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); }
+    ctx.stroke();
+  }
+  function fill(x, y, hex) { // flood fill; a small tolerance also covers the soft edges of strokes
+    const w = cv.width, h = cv.height, img = all(), d = new Uint32Array(img.data.buffer);
+    const start = (y | 0) * w + (x | 0), target = d[start];
+    const [r, gg, b] = [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16));
+    const col = (255 << 24 | b << 16 | gg << 8 | r) >>> 0; // pixels are stored as ABGR
+    if (target === col) return;
+    const near = v => Math.abs((v & 255) - (target & 255)) + Math.abs((v >> 8 & 255) - (target >> 8 & 255))
+      + Math.abs((v >> 16 & 255) - (target >> 16 & 255)) + Math.abs((v >>> 24) - (target >>> 24)) <= 64;
+    const seen = new Uint8Array(w * h), stack = [start];
+    while (stack.length) {
+      const i = stack.pop();
+      if (seen[i]) continue;
+      seen[i] = 1;
+      if (!near(d[i])) continue;
+      d[i] = col;
+      const px = i % w;
+      if (px > 0) stack.push(i - 1);
+      if (px < w - 1) stack.push(i + 1);
+      if (i >= w) stack.push(i - w);
+      if (i < w * (h - 1)) stack.push(i + w);
+    }
+    g.putImageData(img, 0, 0);
+  }
+
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('pointerdown', e => {
+    if (e.button !== 0 && e.button !== 2) return;
+    const right = e.button === 2, color = right ? c2 : c1, [x, y] = at(e);
+    if (tool === 'picker') {
+      const p = g.getImageData(x | 0, y | 0, 1, 1).data, hex = '#' + [p[0], p[1], p[2]].map(v => v.toString(16).padStart(2, '0')).join('');
+      if (right) c2 = hex; else c1 = hex;
+      return refresh();
+    }
+    snap();
+    if (tool === 'fill') return fill(x, y, color);
+    drawing = { x, y, lx: x, ly: y, color: tool === 'eraser' ? c2 : color };
+    cv.setPointerCapture(e.pointerId);
+    if (FREEHAND.includes(tool)) stroke(g, 'line', x, y, x + 0.01, y, drawing.color, width());
+  });
+  cv.addEventListener('pointermove', e => {
+    const [x, y] = at(e);
+    q('.pt-pos').textContent = `${Math.round(x)}, ${Math.round(y)}px`;
+    if (!drawing) return;
+    if (FREEHAND.includes(tool)) { stroke(g, 'line', drawing.lx, drawing.ly, x, y, drawing.color, width()); drawing.lx = x; drawing.ly = y; }
+    else { go.clearRect(0, 0, ov.width, ov.height); stroke(go, tool, drawing.x, drawing.y, x, y, drawing.color, width()); }
+  });
+  const finishShape = e => {
+    if (!drawing) return;
+    const [x, y] = at(e);
+    if (!FREEHAND.includes(tool)) { go.clearRect(0, 0, ov.width, ov.height); stroke(g, tool, drawing.x, drawing.y, x, y, drawing.color, width()); }
+    drawing = null;
+  };
+  cv.addEventListener('pointerup', finishShape);
+  cv.addEventListener('pointercancel', finishShape);
+  const onKey = e => {
+    if (!W.el.classList.contains('active') || !(e.ctrlKey || e.metaKey)) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z') { e.preventDefault(); doUndo(); }
+    if (k === 'y') { e.preventDefault(); doRedo(); }
+  };
+  document.addEventListener('keydown', onKey);
+  W.onClose = () => document.removeEventListener('keydown', onKey);
+  return W;
+}
+
+/* ---------- pinball ---------- */
+let pbWin = null;
+function openPinball() {
+  if (pbWin) { focusWin(pbWin); return pbWin; }
+  const TW = 360, TH = 600, R = 8, G = 700;
+  const W = makeWin({ title: 'Pinball', icon: I.pinball, w: 400, h: 720 });
+  W.body.innerHTML = '<div class="pb"><div class="pb-wrap"><canvas class="pb-c" width="360" height="600" aria-label="Pinball table"></canvas></div>'
+    + '<div class="pb-help">Z or ← left flipper · / or → right flipper · hold Space to launch<br>Touch: tap left/right half for flippers, hold to launch</div></div>';
+  const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
+  const path = pts => pts.slice(1).map((p, k) => [...pts[k], ...p]);
+  const walls = [
+    ...path([[10, 470], [10, 110], [30, 60], [70, 25], [120, 10], [240, 10], [290, 25], [330, 60], [350, 110], [350, 600]]),
+    [320, 600, 320, 150], // launch lane
+    [10, 470, 92, 528], [320, 470, 238, 528], // inlanes to the flippers
+    [60, 400, 60, 440], [270, 400, 270, 440], // small guide posts
+  ];
+  const gate = [320, 150, 350, 110]; // closes the launch lane once the ball is out
+  const bumpers = [
+    { x: 110, y: 170, r: 18, pts: 100 }, { x: 220, y: 165, r: 18, pts: 100 }, { x: 165, y: 245, r: 20, pts: 100 },
+    { x: 70, y: 300, r: 10, pts: 25 }, { x: 260, y: 300, r: 10, pts: 25 },
+  ].map(b => ({ ...b, flash: 0 }));
+  const flippers = [
+    { x: 98, y: 532, len: 58, rest: 0.5, up: -0.45, a: 0.5, w: 0, on: false },
+    { x: 232, y: 532, len: 58, rest: Math.PI - 0.5, up: Math.PI + 0.45, a: Math.PI - 0.5, w: 0, on: false },
+  ];
+  let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0;
+  const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true }; charge = 0; };
+  function newGame() { score = 0; balls = 3; over = false; resetBall(); }
+  newGame();
+
+  function hitSeg(x1, y1, x2, y2, thick) { // pushes the ball out of a thick line, returns the contact
+    const dx = x2 - x1, dy = y2 - y1;
+    const t = Math.max(0, Math.min(1, ((ball.x - x1) * dx + (ball.y - y1) * dy) / (dx * dx + dy * dy)));
+    const px = x1 + t * dx, py = y1 + t * dy;
+    let nx = ball.x - px, ny = ball.y - py;
+    const d = Math.hypot(nx, ny), min = R + thick;
+    if (d >= min || d === 0) return null;
+    nx /= d; ny /= d; ball.x = px + nx * min; ball.y = py + ny * min;
+    return { nx, ny, px, py };
+  }
+  function bounce(c, e, vcx = 0, vcy = 0) {
+    const vn = (ball.vx - vcx) * c.nx + (ball.vy - vcy) * c.ny;
+    if (vn < 0) { ball.vx -= (1 + e) * vn * c.nx; ball.vy -= (1 + e) * vn * c.ny; }
+  }
+  function step(dt) {
+    flippers.forEach(f => {
+      const prev = f.a, target = f.on ? f.up : f.rest, sp = 16 * dt;
+      f.a += Math.max(-sp, Math.min(sp, target - f.a)); f.w = (f.a - prev) / dt;
+    });
+    if (ball.onPlunger) { ball.x = 335; ball.y = 562 + charge * 14; return; }
+    ball.vy += G * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+    if (ball.inLane && ball.x < 316) ball.inLane = false;
+    walls.forEach(s => { const c = hitSeg(...s, 2); if (c) bounce(c, 0.45); });
+    if (!ball.inLane) { const c = hitSeg(...gate, 2); if (c) bounce(c, 0.45); }
+    bumpers.forEach(b => {
+      const dx = ball.x - b.x, dy = ball.y - b.y, d = Math.hypot(dx, dy);
+      if (d >= R + b.r || d === 0) return;
+      const c = { nx: dx / d, ny: dy / d };
+      ball.x = b.x + c.nx * (R + b.r); ball.y = b.y + c.ny * (R + b.r);
+      bounce(c, 0.9); ball.vx += c.nx * 180; ball.vy += c.ny * 180;
+      score += b.pts; b.flash = 0.15;
+    });
+    flippers.forEach(f => {
+      const ex = f.x + Math.cos(f.a) * f.len, ey = f.y + Math.sin(f.a) * f.len;
+      const c = hitSeg(f.x, f.y, ex, ey, 7);
+      if (c) bounce(c, 0.3, -f.w * (c.py - f.y), f.w * (c.px - f.x)); // flipper surface speed at the contact
+    });
+    if (ball.x > 320 && ball.y > 562 && ball.vy > 0) { // back on the plunger
+      ball.y = 562; ball.vy *= -0.3;
+      if (Math.abs(ball.vy) < 40) { ball.onPlunger = true; ball.inLane = true; ball.vx = ball.vy = 0; }
+    }
+    const sp = Math.hypot(ball.vx, ball.vy);
+    if (sp > 1400) { ball.vx *= 1400 / sp; ball.vy *= 1400 / sp; }
+    if (ball.y > TH + 20) drain();
+  }
+  function drain() {
+    balls--;
+    if (balls > 0) return resetBall();
+    over = true; resetBall();
+    if (score > best) { best = score; store.set('pinball-best', best); }
+  }
+  function launch() { if (ball.onPlunger && !over) { ball.onPlunger = false; ball.vy = -(850 + 550 * charge); charge = 0; } }
+
+  function draw() {
+    const bg = g.createLinearGradient(0, 0, 0, TH); bg.addColorStop(0, '#1d2440'); bg.addColorStop(1, '#0b0f1e');
+    g.fillStyle = bg; g.fillRect(0, 0, TW, TH);
+    g.lineCap = 'round'; g.strokeStyle = '#7fd3ff'; g.lineWidth = 4;
+    g.beginPath(); walls.forEach(([a, b, c, d]) => { g.moveTo(a, b); g.lineTo(c, d); }); if (!ball.inLane) { g.moveTo(gate[0], gate[1]); g.lineTo(gate[2], gate[3]); } g.stroke();
+    g.fillStyle = '#4a5677'; g.fillRect(322, 570 + charge * 14, 26, 30); // plunger
+    bumpers.forEach(b => {
+      g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+      g.fillStyle = b.flash > 0 ? '#ffffff' : b.pts > 50 ? '#ff4fa3' : '#ffd166'; g.fill();
+      g.lineWidth = 3; g.strokeStyle = '#ffffff55'; g.stroke();
+    });
+    g.strokeStyle = '#ffd166'; g.lineWidth = 14;
+    flippers.forEach(f => { g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + Math.cos(f.a) * f.len, f.y + Math.sin(f.a) * f.len); g.stroke(); });
+    const bb = g.createRadialGradient(ball.x - 3, ball.y - 3, 1, ball.x, ball.y, R);
+    bb.addColorStop(0, '#ffffff'); bb.addColorStop(1, '#8c98ad');
+    g.fillStyle = bb; g.beginPath(); g.arc(ball.x, ball.y, R, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#e6ecff'; g.font = 'bold 14px Segoe UI, sans-serif'; g.textAlign = 'left';
+    g.fillText(`SCORE ${score}`, 14, 556); g.fillText(`BALLS ${balls}`, 14, 576); g.fillText(`BEST ${best}`, 14, 596);
+    let msg = '';
+    if (over) msg = 'GAME OVER · press Space or tap';
+    else if (!W.el.classList.contains('active')) msg = 'Paused · click to play';
+    else if (ball.onPlunger) msg = charging ? 'Release to launch!' : 'Hold Space to launch';
+    if (msg) {
+      g.textAlign = 'center'; g.font = 'bold 15px Segoe UI, sans-serif';
+      g.fillStyle = '#00000099'; g.fillRect(40, 352, 240, 30);
+      g.fillStyle = '#ffffff'; g.fillText(msg, 160, 372);
+    }
+  }
+  function frame(t) {
+    const dt = Math.min(0.033, (t - last) / 1000 || 0); last = t;
+    if (W.el.classList.contains('active') && !over) {
+      if (charging && ball.onPlunger) charge = Math.min(1, charge + dt * 1.2);
+      for (let k = 0; k < 8; k++) step(dt / 8);
+      bumpers.forEach(b => { b.flash = Math.max(0, b.flash - dt); });
+    }
+    draw();
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+
+  const flip = (side, on) => { flippers[side].on = on; };
+  const keyOf = e => ['z', 'Z', 'ArrowLeft', 'Shift'].includes(e.key) && e.code !== 'ShiftRight' ? 0
+    : ['/', '?', 'ArrowRight'].includes(e.key) || e.code === 'ShiftRight' ? 1 : e.key === ' ' || e.key === 'ArrowDown' ? 'launch' : null;
+  const onDown = e => {
+    if (!W.el.classList.contains('active')) return;
+    const k = keyOf(e); if (k === null) return;
+    e.preventDefault();
+    if (k === 'launch') { if (over) newGame(); else if (ball.onPlunger) charging = true; }
+    else flip(k, true);
+  };
+  const onUp = e => {
+    const k = keyOf(e); if (k === null) return;
+    if (k === 'launch') { if (charging) { charging = false; launch(); } }
+    else flip(k, false);
+  };
+  document.addEventListener('keydown', onDown);
+  document.addEventListener('keyup', onUp);
+  cv.addEventListener('pointerdown', e => {
+    if (over) return newGame();
+    cv.setPointerCapture(e.pointerId);
+    if (ball.onPlunger) { charging = true; return; }
+    const r = cv.getBoundingClientRect();
+    flip(e.clientX - r.left < r.width / 2 ? 0 : 1, true);
+  });
+  const release = () => { if (charging) { charging = false; launch(); } flip(0, false); flip(1, false); };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', release);
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onDown); document.removeEventListener('keyup', onUp); pbWin = null; };
+  pbWin = W;
+  return W;
+}
+
 /* ---------- desktop ---------- */
 // Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
 // and drag them to any cell; the layout is remembered in their browser.
@@ -796,7 +1081,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'video'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

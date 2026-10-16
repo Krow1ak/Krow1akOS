@@ -34,6 +34,8 @@ const ASSETS = {
     video:       'assets/icons/video.svg',
     minesweeper: 'assets/icons/minesweeper.svg',
     wordle:      'assets/icons/wordle.svg',
+    paint:       'assets/icons/paint.svg',
+    pinball:     'assets/icons/pinball.svg',
   },
 
   ui: {
@@ -97,6 +99,8 @@ const DATES_FILE = 'content/dates.txt';
    video('name.mp4', '...', { poster: 'assets/videos/name.jpg' })   picture shown before it plays
    minesweeper()                           the Minesweeper game (Game > Daily challenge for the daily board)
    wordle()                                the daily Wordle
+   paint()                                 Paint
+   pinball()                               Pinball
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
 
@@ -136,17 +140,20 @@ const MEMES = folder('Memes', [
 
 const MINESWEEPER = minesweeper();
 const WORDLE = wordle();
+const PAINT = paint();
+const PINBALL = pinball();
+const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, PAINT]);
 
 const ABOUT = text('About me.txt');
 
 const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  ARTS, CHUCHA, MEMES, folder('Users', [ABOUT]),
+  ARTS, CHUCHA, MEMES, GAMES, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, MINESWEEPER, WORDLE, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, GAMES, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;
@@ -159,6 +166,8 @@ function picture(name, src, opts = {}) { return { name, type: 'img', src, ...opt
 function video(name, src, opts = {}) { return { name, type: 'video', src, ...opts }; }
 function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweeper', ...opts }; }
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
+function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
+function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }
 function computer(children, opts = {}) { return { name: 'Computer', type: 'computer', children, ...opts }; }
 function recycleBin(children, opts = {}) { return { name: 'Recycle Bin', type: 'bin', children, ...opts }; }

@@ -142,6 +142,31 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .ms-note[hidden]{display:none}
 .ms-note-btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
 
+/* paint */
+.pt-tools{flex:none;display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px;background:linear-gradient(#f5f9fd,#dfe9f5);border-bottom:1px solid #b9c9da}
+.pt-g{display:flex;gap:3px;align-items:center;padding-right:6px;border-right:1px solid #c5d3e2}
+.pt-g:last-child{border-right:0}
+.pt-b{width:30px;height:30px;padding:0;display:grid;place-items:center;font-size:15px;line-height:1;background:none;border:1px solid transparent;border-radius:3px;cursor:pointer;color:var(--ink)}
+.pt-b:hover{background:#e5f1fb;border-color:#a8cdee}
+.pt-b.on{background:#cce4f7;border-color:#7eb4ea}
+.pt-b i{display:block;border-radius:50%;background:#222}
+.pt-sw{display:block;width:26px;height:26px;border:1px solid #666;border-radius:3px;box-shadow:inset 0 0 0 1px #fff}
+.pt-sw.c2{width:20px;height:20px;align-self:flex-end}
+.pt-pal{display:grid;grid-template-columns:repeat(10,16px);gap:2px}
+.pt-pal button{width:16px;height:16px;padding:0;border:1px solid #888;cursor:pointer}
+.pt-pal button:hover{outline:1px solid #3a8fd6}
+.pt-custom{width:30px;height:28px;padding:0 2px;border:1px solid #888;border-radius:3px;background:#fff;cursor:pointer}
+.pt-area{flex:1;min-height:0;overflow:auto;background:#c8d2de;padding:8px}
+.pt-stage{position:relative;width:max-content;box-shadow:0 1px 4px rgba(0,0,0,.35)}
+.pt-c{display:block;background:#fff;touch-action:none}
+.pt-o{position:absolute;left:0;top:0;pointer-events:none}
+
+/* pinball */
+.pb{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding:6px;background:#0b0f1e}
+.pb-wrap{flex:1;min-height:0;display:grid;grid-template:minmax(0,1fr)/minmax(0,1fr);place-items:center}
+.pb-c{height:100%;max-width:100%;touch-action:none;display:block;border-radius:6px;user-select:none;-webkit-user-select:none}
+.pb-help{flex:none;color:#9fb3d1;font-size:11px;text-align:center;line-height:1.4}
+
 /* leaderboard */
 .lb-tabs{flex:none;display:flex;gap:2px;padding:6px 6px 0;background:#eef3f9;border-bottom:1px solid #b9c9da}
 .lb-tab{font:inherit;padding:4px 12px;border:1px solid #b9c9da;border-bottom:0;border-radius:3px 3px 0 0;background:#dfe9f5;cursor:pointer;color:var(--ink)}

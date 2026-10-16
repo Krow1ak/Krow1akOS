@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LaisaOS Desktop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<img id="watermark" alt="" draggable="false">
+<div id="desktop" role="list" aria-label="Desktop"></div>
+
+<div id="start" hidden>
+  <div class="sm-left" id="sm-left"></div>
+  <div class="sm-right">
+    <div class="sm-user" id="sm-user"></div>
+    <div id="sm-links" style="display:flex;flex-direction:column;gap:2px"></div>
+    <div class="sm-foot"><button class="shut" id="shut">Shut down</button></div>
+  </div>
+</div>
+
+<div id="taskbar">
+  <button id="orb" aria-label="Start"></button>
+  <div id="tasks"></div>
+  <button id="tray" aria-label="Clock and calendar"><span id="clock-t"></span><span id="clock-d"></span></button>
+  <button id="peek" aria-label="Show desktop" title="Show desktop"></button>
+</div>
+
+<div id="cal" hidden>
+  <div class="cal-in">
+    <button class="cal-long" id="cal-long" title="Go to today"></button>
+    <div class="cal-row">
+      <div class="cal-left">
+        <div class="cal-head"><button id="cal-prev" aria-label="Previous month">◀</button><span id="cal-month"></span><button id="cal-next" aria-label="Next month">▶</button></div>
+        <div class="cal-grid" id="cal-grid"></div>
+      </div>
+      <div class="cal-clock"><svg id="cal-face" viewBox="0 0 100 100" aria-hidden="true"></svg><span id="cal-time"></span></div>
+    </div>
+    <div class="cal-info" id="cal-info"></div>
+  </div>
+</div>
+
+<div id="off" hidden><div class="msg" id="off-msg"></div></div>
+
+<script src="config.js"></script>
+<script src="desktop.js"></script>
+</body>
+</html>

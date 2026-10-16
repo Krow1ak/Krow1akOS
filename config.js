@@ -88,8 +88,15 @@ const ARTS = folder('Arts', [
   folder('WIZ', [
     picture('wiz_1.webp', 'assets/arts/wiz/wiz_1.webp'),
     picture('wiz_2.png',  'assets/arts/wiz/wiz_2.png'),
+    picture('wiz_3.png',  'assets/arts/wiz/wiz_3.png'),
   ], { art: true }),
-  picture('soul_heart.png', 'assets/arts/krow1ak.png'),
+  folder('LaisaTheNeko', [
+    picture('laisatheneko_1.png', 'assets/arts/laisatheneko/laisatheneko_1.png'),
+    video('krowfrog.mp4', 'assets/arts/laisatheneko/krowfrog.mp4'),
+  ], { art: true }),
+  folder('Sova', [
+    picture('sova_1.png', 'assets/arts/sova/sova_1.png'),
+  ], { art: true }),
 ], { art: true });
 
 const CHUCHA = folder('Chucha', [

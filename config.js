@@ -100,6 +100,7 @@ const ARTS = folder('Arts', [
 ], { art: true });
 
 const CHUCHA = folder('Chucha', [
+  text('Chuchu.txt'),
   picture('chucha_1.webp', 'assets/chucha/chucha_1.webp'),
   picture('chucha_2.webp', 'assets/chucha/chucha_2.webp'),
   picture('chucha_3.webp', 'assets/chucha/chucha_3.webp'),

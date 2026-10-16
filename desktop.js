@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -134,6 +134,7 @@ function openNode(n, folder) {
   if (n.type === 'img') return openViewer(n, folder || parentOf(n) || desktop);
   if (n.type === 'video') return openVideo(n);
   if (n.type === 'minesweeper') return openMinesweeper();
+  if (n.type === 'wordle') return openWordle();
 }
 function parentOf(target, n = desktop) {
   for (const c of n.children || []) { if (c === target) return n; if (c.children) { const p = parentOf(target, c); if (p) return p; } }
@@ -294,18 +295,51 @@ function openVideo(n) {
   return W;
 }
 
+/* ---------- daily puzzles ---------- */
+// Daily puzzles follow the UTC date so every visitor gets the same one on the same day.
+const dayKey = (d = new Date()) => d.toISOString().slice(0, 10);
+function untilTomorrow() {
+  const n = new Date(), ms = Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() + 1) - n;
+  const h = Math.floor(ms / 36e5), m = Math.floor(ms / 6e4) % 60, sec = Math.floor(ms / 1000) % 60;
+  return [h, m, sec].map(v => String(v).padStart(2, '0')).join(':');
+}
+function seededRandom(text) { // same text -> same sequence of numbers on every computer
+  let h = 1779033703 ^ text.length;
+  for (let k = 0; k < text.length; k++) { h = Math.imul(h ^ text.charCodeAt(k), 3432918353); h = h << 13 | h >>> 19; }
+  return () => {
+    h = h + 0x6D2B79F5 | 0;
+    let t = Math.imul(h ^ h >>> 15, 1 | h);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+// results are kept in this browser only (there is no shared database yet)
+const store = {
+  get(k, def = null) { try { const v = localStorage.getItem('krowos:' + k); return v == null ? def : JSON.parse(v); } catch { return def; } },
+  set(k, v) { try { localStorage.setItem('krowos:' + k, JSON.stringify(v)); } catch {} },
+  all(prefix) {
+    const out = [];
+    try { for (let k = 0; k < localStorage.length; k++) { const key = localStorage.key(k); if (key.startsWith('krowos:' + prefix)) out.push(JSON.parse(localStorage.getItem(key))); } } catch {}
+    return out;
+  },
+};
+
 /* ---------- minesweeper ---------- */
 const MS_LEVELS = { Beginner: [9, 9, 10], Intermediate: [16, 16, 40], Expert: [30, 16, 99] };
 const MS_CELL = 24;
+// best first: wins by fastest time, then most mines found, then most of the board cleared
+const msRank = (a, b) => (b.won - a.won) || (a.won ? a.time - b.time : 0) || (b.bombs - a.bombs) || (b.cleared - a.cleared);
+const msTime = ms => (ms / 1000).toFixed(1) + 's';
+const msSummary = r => r.won ? `Won in ${msTime(r.time)}` : `Lost: ${r.bombs} of ${r.mines} mines found, ${r.cleared}% cleared`;
 let msWin = null;
 function openMinesweeper() {
   if (msWin) { focusWin(msWin); return msWin; }
-  const W = makeWin({ title: 'Minesweeper', icon: I.minesweeper, w: 9 * MS_CELL + 40, h: 9 * MS_CELL + 140 });
-  W.body.innerHTML = '<div class="menu"></div><div class="ms"><div class="ms-in"><div class="ms-panel"><span class="ms-led ms-left"></span><button class="ms-face" aria-label="New game"></button><span class="ms-led ms-time"></span></div><div class="ms-grid" role="grid" aria-label="Minefield"></div></div></div>';
-  const grid = W.body.querySelector('.ms-grid'), face = W.body.querySelector('.ms-face');
-  const ledLeft = W.body.querySelector('.ms-left'), ledTime = W.body.querySelector('.ms-time');
+  const W = makeWin({ title: 'Minesweeper', icon: I.minesweeper, w: 9 * MS_CELL + 40, h: 9 * MS_CELL + 160 });
+  W.body.innerHTML = '<div class="menu"></div><div class="ms"><div class="ms-in"><div class="ms-mode"></div><div class="ms-panel"><span class="ms-led ms-left"></span><button class="ms-face" aria-label="New game"></button><span class="ms-led ms-time"></span></div><div class="ms-board"><div class="ms-grid" role="grid" aria-label="Minefield"></div><div class="ms-note" hidden></div></div></div></div>';
+  const q = sel => W.body.querySelector(sel);
+  const grid = q('.ms-grid'), face = q('.ms-face'), ledLeft = q('.ms-left'), ledTime = q('.ms-time'), modeEl = q('.ms-mode'), note = q('.ms-note');
   const FACE = { ok: '🙂', press: '😮', win: '😎', lose: '😵' };
-  let level = 'Beginner', cols, rows, mines, cells, started, over, opened, flags, time, timer = null;
+  let level = 'Beginner', daily = false, today = '', cols, rows, mines, cells, started, over, opened, flags, t0 = 0, timer = null;
   const led = n => String(Math.max(-99, Math.min(999, n))).padStart(3, '0');
   const around = i => {
     const x = i % cols, y = (i / cols) | 0, out = [];
@@ -316,29 +350,58 @@ function openMinesweeper() {
     return out;
   };
   const stopTimer = () => { clearInterval(timer); timer = null; };
+  const dailyKey = () => `ms-daily:${today}:${level}`;
 
-  function newGame(lv = level) {
-    level = lv; [cols, rows, mines] = MS_LEVELS[level];
-    stopTimer(); started = over = false; opened = flags = time = 0;
+  function newGame(lv = level, isDaily = daily) {
+    level = lv; daily = isDaily; [cols, rows, mines] = MS_LEVELS[level];
+    stopTimer(); started = over = false; opened = flags = 0;
     cells = Array.from({ length: cols * rows }, () => ({ mine: false, open: false, flag: false, n: 0 }));
     grid.style.gridTemplateColumns = `repeat(${cols}, ${MS_CELL}px)`;
     grid.replaceChildren(...cells.map((_, i) => { const c = el('<div class="ms-c" role="gridcell"></div>'); c.dataset.i = i; return c; }));
     face.textContent = FACE.ok; ledLeft.textContent = led(mines); ledTime.textContent = led(0);
+    note.hidden = true;
+    if (daily) {
+      // everyone gets the same mines and the same opened starting area today
+      today = dayKey();
+      modeEl.textContent = `Daily challenge · ${level} · ${today}`;
+      const rng = seededRandom(`minesweeper|${today}|${level}`);
+      const startCell = Math.floor(rng() * cells.length);
+      layMines(startCell, rng);
+      const prev = store.get(dailyKey());
+      if (prev) { // one life: a finished or abandoned daily game can't be replayed
+        if (prev.status === 'playing') { prev.status = 'done'; store.set(dailyKey(), prev); }
+        over = true; showNote(prev);
+      } else flood(startCell);
+    } else modeEl.textContent = 'Free play';
     fitWindow();
+  }
+  function showNote(r) {
+    note.hidden = false; note.replaceChildren();
+    const add = (tag, text) => { const e = document.createElement(tag); e.textContent = text; note.append(e); return e; };
+    add('b', `Today's ${level} challenge is done`);
+    add('span', msSummary(r));
+    const next = add('span', '');
+    const tickNext = () => { next.textContent = `Next board in ${untilTomorrow()}`; };
+    tickNext();
+    const iv = setInterval(() => { if (note.isConnected && !note.hidden) tickNext(); else clearInterval(iv); }, 1000);
+    const btns = add('div', ''); btns.className = 'ms-note-btns';
+    const lb = el('<button class="okbtn">Leaderboard</button>'); lb.onclick = () => openMsLeaderboard(level);
+    const fp = el('<button class="okbtn">Free play</button>'); fp.onclick = () => newGame(level, false);
+    btns.append(lb, fp);
   }
   function fitWindow() {
     if (innerWidth <= 640 || W.el.classList.contains('max')) return;
-    const box = W.body.querySelector('.ms'), inner = W.body.querySelector('.ms-in');
+    const box = q('.ms'), inner = q('.ms-in');
     const w = W.el.offsetWidth - box.clientWidth + inner.offsetWidth + 16;
     const h = W.el.offsetHeight - box.clientHeight + inner.offsetHeight + 16;
     W.el.style.width = Math.min(w, innerWidth - 20) + 'px'; W.el.style.height = Math.min(h, innerHeight - 60) + 'px';
     W.el.style.left = Math.max(10, Math.min(W.el.offsetLeft, innerWidth - W.el.offsetWidth - 10)) + 'px';
     W.el.style.top = Math.max(8, Math.min(W.el.offsetTop, innerHeight - 40 - W.el.offsetHeight - 8)) + 'px';
   }
-  function layMines(safe) { // first click is never a mine, and opens an area
+  function layMines(safe, rng = Math.random) { // the safe cell and its neighbours never hold a mine
     const keep = new Set([safe, ...around(safe)]);
     const spots = cells.map((_, i) => i).filter(i => !keep.has(i));
-    for (let k = 0; k < mines; k++) { const j = k + Math.floor(Math.random() * (spots.length - k)); [spots[k], spots[j]] = [spots[j], spots[k]]; cells[spots[k]].mine = true; }
+    for (let k = 0; k < mines; k++) { const j = k + Math.floor(rng() * (spots.length - k)); [spots[k], spots[j]] = [spots[j], spots[k]]; cells[spots[k]].mine = true; }
     cells.forEach((c, i) => { c.n = around(i).filter(j => cells[j].mine).length; });
   }
   function draw(i) {
@@ -346,10 +409,21 @@ function openMinesweeper() {
     d.className = 'ms-c' + (c.open ? ' open' : '') + (c.open && c.n && !c.mine ? ' n' + c.n : '');
     d.textContent = c.flag && !c.open ? '🚩' : c.open && c.mine ? '💣' : c.open && c.n ? c.n : '';
   }
-  function open(i) {
-    if (over || cells[i].flag || cells[i].open) return;
-    if (!started) { started = true; layMines(i); timer = setInterval(() => { ledTime.textContent = led(++time); }, 1000); ledTime.textContent = led(time = 1); }
-    if (cells[i].mine) return lose(i);
+  function result(won) {
+    return { status: 'done', day: today, level, won, mines,
+      time: won ? Math.round(performance.now() - t0) : null,
+      bombs: cells.filter(c => c.mine && c.flag).length,
+      cleared: Math.round(opened / (cells.length - mines) * 1000) / 10 };
+  }
+  function saveDaily(status, won = false) { if (daily) store.set(dailyKey(), { ...result(won), status }); }
+  function begin(i) {
+    started = true;
+    if (!daily) layMines(i);
+    t0 = performance.now();
+    timer = setInterval(() => { ledTime.textContent = led(Math.floor((performance.now() - t0) / 1000) + 1); }, 250);
+    ledTime.textContent = led(1);
+  }
+  function flood(i) {
     const stack = [i];
     while (stack.length) {
       const j = stack.pop(), c = cells[j];
@@ -357,11 +431,18 @@ function openMinesweeper() {
       c.open = true; opened++; draw(j);
       if (!c.n) stack.push(...around(j));
     }
-    if (opened === cells.length - mines) win();
+  }
+  function open(i) {
+    if (over || cells[i].flag || cells[i].open) return;
+    if (!started) begin(i);
+    if (cells[i].mine) return lose(i);
+    flood(i);
+    if (opened === cells.length - mines) win(); else saveDaily('playing');
   }
   function chord(i) { // clicking an opened number with enough flags around opens the rest
     const c = cells[i];
     if (!c.open || !c.n || over) return;
+    if (!started) begin(i);
     const ns = around(i);
     if (ns.filter(j => cells[j].flag).length === c.n) ns.forEach(open);
   }
@@ -369,9 +450,11 @@ function openMinesweeper() {
     const c = cells[i];
     if (over || c.open) return;
     c.flag = !c.flag; flags += c.flag ? 1 : -1; ledLeft.textContent = led(mines - flags); draw(i);
+    if (started) saveDaily('playing');
   }
   function lose(i) {
     over = true; stopTimer(); face.textContent = FACE.lose;
+    saveDaily('done', false);
     cells.forEach((c, j) => {
       if (c.mine && !c.flag) { c.open = true; draw(j); }
       else if (c.flag && !c.mine) { grid.children[j].textContent = '❌'; }
@@ -382,6 +465,7 @@ function openMinesweeper() {
     over = true; stopTimer(); face.textContent = FACE.win;
     cells.forEach((c, j) => { if (c.mine && !c.flag) { c.flag = true; draw(j); } });
     ledLeft.textContent = led(0);
+    saveDaily('done', true);
   }
 
   // mouse: left opens, right flags, left on a number chords. touch: tap opens, hold flags.
@@ -405,15 +489,166 @@ function openMinesweeper() {
   grid.addEventListener('pointerleave', () => { clearTimeout(hold); if (!over) face.textContent = FACE.ok; });
   face.onclick = () => newGame();
 
-  menuBar(W, W.body.querySelector('.menu'), {
+  menuBar(W, q('.menu'), {
     Game: [['New', () => newGame()],
       ...Object.keys(MS_LEVELS).map(lv => [lv, () => newGame(lv), () => level === lv]),
+      ['Daily challenge', () => newGame(level, !daily), () => daily],
+      ['Leaderboard', () => openMsLeaderboard(level)],
       ['Close', () => closeWin(W)]],
   });
   const prev = W.onClose;
   W.onClose = () => { prev && prev(); stopTimer(); msWin = null; };
   msWin = W;
   newGame();
+  return W;
+}
+
+let msBoardWin = null;
+function openMsLeaderboard(level = 'Beginner') {
+  if (msBoardWin) { msBoardWin.show(level); focusWin(msBoardWin); return msBoardWin; }
+  const W = makeWin({ title: 'Minesweeper Daily Leaderboard', icon: I.minesweeper, w: 520, h: 400 });
+  W.body.innerHTML = '<div class="lb-tabs"></div><div class="lb-body"></div><div class="lb-foot dim">Your daily results on this device. Wins rank by time; otherwise by mines found, then % of the board cleared.</div>';
+  const tabs = W.body.querySelector('.lb-tabs'), body = W.body.querySelector('.lb-body');
+  W.show = lv => {
+    level = lv;
+    tabs.replaceChildren(...Object.keys(MS_LEVELS).map(name => {
+      const t = el('<button class="lb-tab"></button>'); t.textContent = name; t.classList.toggle('on', name === level); t.onclick = () => W.show(name); return t;
+    }));
+    const rows = store.all('ms-daily:').filter(r => r.level === level && r.status === 'done').sort(msRank);
+    if (!rows.length) { body.innerHTML = `<div class="empty">No ${esc(level)} daily games yet. In Minesweeper pick Game &gt; Daily challenge.</div>`; return; }
+    const today = dayKey();
+    body.innerHTML = '<table class="lb-table"><thead><tr><th>#</th><th>Day</th><th>Result</th><th>Mines found</th><th>Cleared</th><th>Time</th></tr></thead><tbody></tbody></table>';
+    body.querySelector('tbody').append(...rows.map((r, k) => el(`<tr${r.day === today ? ' class="today"' : ''}><td>${k + 1}</td><td>${esc(r.day)}</td><td>${r.won ? 'Won' : 'Lost'}</td><td>${r.bombs} / ${r.mines}</td><td>${r.cleared}%</td><td>${r.won ? msTime(r.time) : '-'}</td></tr>`)));
+  };
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); msBoardWin = null; };
+  msBoardWin = W;
+  W.show(level);
+  return W;
+}
+
+/* ---------- daily wordle ---------- */
+const WORDLE_START = Date.UTC(2026, 9, 16); // puzzle #1
+let wordWin = null, wordsP = null;
+const loadWords = () => wordsP ||= fetch('assets/wordle/words.json')
+  .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => ({ answers: d.answers, allowed: new Set([...d.answers, ...d.guesses.split(' ')]) }))
+  .catch(err => { wordsP = null; throw err; });
+function scoreGuess(guess, answer) { // 'correct' | 'present' | 'absent' per letter, counting repeated letters properly
+  const res = Array(5).fill('absent'), left = {};
+  for (let k = 0; k < 5; k++) { if (guess[k] === answer[k]) res[k] = 'correct'; else left[answer[k]] = (left[answer[k]] || 0) + 1; }
+  for (let k = 0; k < 5; k++) if (res[k] !== 'correct' && left[guess[k]]) { res[k] = 'present'; left[guess[k]]--; }
+  return res;
+}
+function openWordle() {
+  if (wordWin) { focusWin(wordWin); return wordWin; }
+  const W = makeWin({ title: 'Wordle', icon: I.wordle, w: 380, h: 620 });
+  W.body.innerHTML = '<div class="wd"><div class="wd-top"><span class="wd-no"></span><button class="tbtn wd-sb">Statistics</button></div><div class="wd-msg" role="status" aria-live="polite"></div><div class="wd-grid"></div><div class="wd-keys"></div><div class="wd-panel" hidden></div></div>';
+  const q = sel => W.body.querySelector(sel);
+  const gridEl = q('.wd-grid'), keysEl = q('.wd-keys'), msgEl = q('.wd-msg'), panel = q('.wd-panel');
+  const today = dayKey(), num = Math.round((Date.parse(today) - WORDLE_START) / 864e5) + 1;
+  q('.wd-no').textContent = `Daily Wordle #${num}`;
+  let words = null, answer = '', cur = '', msgTimer = null, clock = null;
+  const state = store.get(`wordle:${today}`, { guesses: [], done: false, won: false });
+  const say = (t, ms = 1600) => { msgEl.textContent = t; clearTimeout(msgTimer); if (ms) msgTimer = setTimeout(() => { msgEl.textContent = ''; }, ms); };
+
+  gridEl.append(...Array.from({ length: 6 }, () => el('<div class="wd-row">' + '<div class="wd-t"></div>'.repeat(5) + '</div>')));
+  ['qwertyuiop', 'asdfghjkl', '+zxcvbnm-'].forEach(row => {
+    const r = el('<div class="wd-kr"></div>');
+    [...row].forEach(ch => {
+      const k = el('<button class="wd-k"></button>');
+      if (ch === '+') { k.textContent = 'Enter'; k.dataset.k = 'Enter'; }
+      else if (ch === '-') { k.textContent = '⌫'; k.dataset.k = 'Backspace'; k.setAttribute('aria-label', 'Backspace'); }
+      else { k.textContent = ch; k.dataset.k = ch; }
+      r.append(k);
+    });
+    keysEl.append(r);
+  });
+  keysEl.addEventListener('click', e => { const k = e.target.closest('.wd-k'); if (k) press(k.dataset.k); });
+  const onKey = e => {
+    if (!W.el.classList.contains('active') || e.ctrlKey || e.metaKey || e.altKey || (e.target instanceof Element && e.target.matches('input, textarea'))) return;
+    if (/^[a-z]$/i.test(e.key) || e.key === 'Enter' || e.key === 'Backspace') { e.preventDefault(); press(e.key.length === 1 ? e.key.toLowerCase() : e.key); }
+  };
+  document.addEventListener('keydown', onKey);
+  W.onClose = () => { document.removeEventListener('keydown', onKey); clearInterval(clock); clearTimeout(msgTimer); wordWin = null; };
+  wordWin = W;
+
+  function render() {
+    const best = {}, rank = { absent: 1, present: 2, correct: 3 };
+    [...gridEl.children].forEach((row, r) => {
+      const g = state.guesses[r], marks = g ? scoreGuess(g, answer) : null;
+      const txt = g || (r === state.guesses.length && !state.done ? cur : '');
+      [...row.children].forEach((t, k) => {
+        t.textContent = txt[k] || '';
+        t.className = 'wd-t' + (marks ? ' ' + marks[k] : txt[k] ? ' filled' : '');
+        if (marks && rank[marks[k]] > (rank[best[g[k]]] || 0)) best[g[k]] = marks[k];
+      });
+    });
+    keysEl.querySelectorAll('.wd-k').forEach(k => { k.className = 'wd-k' + (k.dataset.k.length > 1 ? ' wide' : '') + (best[k.dataset.k] ? ' ' + best[k.dataset.k] : ''); });
+  }
+  function shake() { const row = gridEl.children[state.guesses.length]; row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake'); }
+  function press(k) {
+    if (!words || state.done) return;
+    if (k === 'Enter') return submit();
+    if (k === 'Backspace') cur = cur.slice(0, -1);
+    else if (cur.length < 5) cur += k;
+    render();
+  }
+  function submit() {
+    if (cur.length < 5) { say('Not enough letters'); return shake(); }
+    if (!words.allowed.has(cur)) { say('Not in word list'); return shake(); }
+    state.guesses.push(cur);
+    if (cur === answer) state.done = state.won = true;
+    else if (state.guesses.length === 6) state.done = true;
+    cur = '';
+    store.set(`wordle:${today}`, state);
+    render();
+    if (state.done) finish();
+  }
+  function finish() {
+    const st = store.get('wordle-stats', { played: 0, wins: 0, streak: 0, maxStreak: 0, dist: [0, 0, 0, 0, 0, 0, 0], lastWin: null });
+    st.played++;
+    if (state.won) {
+      const yesterday = dayKey(new Date(Date.parse(today) - 864e5));
+      st.wins++; st.streak = st.lastWin === yesterday ? st.streak + 1 : 1; st.lastWin = today;
+      st.maxStreak = Math.max(st.maxStreak, st.streak); st.dist[state.guesses.length]++;
+    } else { st.streak = 0; st.dist[0]++; }
+    store.set('wordle-stats', st);
+    say(state.won ? ['Genius', 'Magnificent', 'Impressive', 'Splendid', 'Great', 'Phew'][state.guesses.length - 1] : answer.toUpperCase(), 0);
+    setTimeout(showStats, 1200);
+  }
+  function showStats() {
+    const st = store.get('wordle-stats', { played: 0, wins: 0, streak: 0, maxStreak: 0, dist: [0, 0, 0, 0, 0, 0, 0] });
+    const pct = n => st.played ? Math.round(n / st.played * 100) : 0;
+    const most = Math.max(1, ...st.dist);
+    const todayRow = state.done ? (state.won ? state.guesses.length : 0) : -1;
+    panel.hidden = false;
+    panel.innerHTML = '<button class="wd-x" aria-label="Close statistics">✕</button><h3>Statistics</h3>'
+      + `<div class="wd-nums"><div><b>${st.played}</b>Played</div><div><b>${pct(st.wins)}</b>Win %</div><div><b>${st.streak}</b>Current streak</div><div><b>${st.maxStreak}</b>Max streak</div></div>`
+      + '<h3>Won in how many guesses</h3><div class="wd-dist">'
+      + [1, 2, 3, 4, 5, 6, 0].map(n => `<div class="wd-bar${n === todayRow ? ' today' : ''}"><span>${n || 'X'}</span><i style="width:${Math.max(8, st.dist[n] / most * 100)}%">${st.dist[n]}</i><em>${pct(st.dist[n])}%</em></div>`).join('')
+      + '</div><p class="dim">Percent of all your games. X = not solved.</p>'
+      + (state.done ? '<div class="wd-end"><span class="wd-next"></span><button class="okbtn wd-share">Share</button></div>' : '');
+    panel.querySelector('.wd-x').onclick = () => { panel.hidden = true; clearInterval(clock); };
+    clearInterval(clock);
+    const next = panel.querySelector('.wd-next');
+    if (next) { const t = () => { next.textContent = `Next Wordle in ${untilTomorrow()}`; }; t(); clock = setInterval(t, 1000); }
+    const share = panel.querySelector('.wd-share');
+    if (share) share.onclick = () => {
+      const sq = { correct: '🟩', present: '🟨', absent: '⬛' };
+      const text = `${SITE_NAME} Wordle #${num} ${state.won ? state.guesses.length : 'X'}/6\n\n` + state.guesses.map(g => scoreGuess(g, answer).map(m => sq[m]).join('')).join('\n');
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => say('Copied results to clipboard'), () => say("Couldn't copy"));
+    };
+  }
+  q('.wd-sb').onclick = () => { if (panel.hidden) showStats(); else { panel.hidden = true; clearInterval(clock); } };
+
+  say('Loading words...', 0);
+  loadWords().then(w => {
+    words = w; answer = w.answers[((num - 1) % w.answers.length + w.answers.length) % w.answers.length];
+    say('');
+    render();
+    if (state.done) { say(state.won ? "You solved today's Wordle!" : `The word was ${answer.toUpperCase()}`, 0); showStats(); }
+  }, () => say("Couldn't load the word list.", 0));
   return W;
 }
 
@@ -433,7 +668,7 @@ dEl.onclick = () => dEl.querySelectorAll('.dicon').forEach(x => x.classList.remo
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'video'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'video'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

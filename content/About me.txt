@@ -1,13 +1,5 @@
-Hi, I'm LaisaTheNeko!
+Hi, I'm Krow1ak!
 
-I make games, mods and shaders.
+I play games and having fun!
 
-Things I work with:
-  - Lua (Figura avatars for Minecraft)
-  - Java (Fabric mods)
-  - HLSL / GLSL shaders
-  - Clickteam Fusion 2.5 and GameMaker
-  - HTML / CSS / JS browser tools
-
-Open the Projects folder to see what I'm building,
-or the Arts folder for pictures.
+Open the Arts folder for my fan arts pictures.

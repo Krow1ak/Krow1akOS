@@ -18,7 +18,7 @@ const ASSETS = {
   taskbar:   'assets/taskbar.png',          // repeats sideways, 40px tall looks best
   startOrb:  'assets/ui/start-orb.svg',
   watermark: 'assets/ui/watermark-paw.svg', // faint mark on the wallpaper; set to '' to hide
-  avatar:    'assets/icons/avatar.svg',     // picture in the start menu
+  avatar:    'assets/icons/avatar.png',     // picture in the start menu
 
   icons: {
     folder:      'assets/icons/folder.svg',

@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application', audio: 'Audio' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, audio: I.music }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -138,6 +138,7 @@ function openNode(n, folder) {
   if (n.type === 'paint') return openPaint();
   if (n.type === 'pinball') return openPinball();
   if (n.type === 'audio') return openPlayer(n, folder);
+  if (n.type === 'browser') return openBrowser(n.url);
 }
 function parentOf(target, n = desktop) {
   for (const c of n.children || []) { if (c === target) return n; if (c.children) { const p = parentOf(target, c); if (p) return p; } }
@@ -783,6 +784,71 @@ function openPaint() {
   return W;
 }
 
+/* ---------- web browser ---------- */
+// Pages load in an iframe, so sites that forbid framing show blank; ↗ opens them in a real tab.
+const SEARCH_URL = 'https://www.google.com/search?igu=1&q=';
+function toUrl(input) {
+  const s = input.trim();
+  if (!s) return '';
+  if (!/^[a-z]+:\/\//i.test(s)) return /^[^\s]+\.[a-z]{2,}(\/|$)/i.test(s) ? 'https://' + s : SEARCH_URL + encodeURIComponent(s);
+  return s;
+}
+// turn normal Spotify / YouTube links into their embeddable players
+function embedUrl(url) {
+  let m = url.match(/^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(playlist|album|track|artist|episode|show)\/([\w]+)/i);
+  if (m) return `https://open.spotify.com/embed/${m[1]}/${m[2]}`;
+  m = url.match(/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([\w-]{11})/i);
+  if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  return url;
+}
+function openBrowser(start) {
+  const W = makeWin({ title: 'Internet', icon: I.browser, w: 900, h: 600 });
+  const nav = el(`<div class="nav"><button class="nb bk" aria-label="Back">${img(U.back, '')}</button><button class="nb fw" aria-label="Forward">${img(U.forward, '')}</button>`
+    + '<button class="nb wb-re" aria-label="Reload" title="Reload">⟳</button><button class="nb wb-home" aria-label="Home" title="Home">⌂</button>'
+    + '<form class="wb-form"><input class="wb-url" type="text" spellcheck="false" autocomplete="off" aria-label="Address or search"></form>'
+    + '<button class="nb wb-out" aria-label="Open in a new tab" title="Open in a new tab">↗</button></div>');
+  W.el.insertBefore(nav, W.body);
+  W.body.innerHTML = '<div class="tools wb-marks"></div><div class="wb-page"><iframe class="wb-frame" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe><div class="wb-note" hidden></div></div>';
+  const q = sel => W.el.querySelector(sel);
+  const frame = q('.wb-frame'), note = q('.wb-note'), urlIn = q('.wb-url');
+  const st = { hist: [], i: -1 };
+  let pausedMusic = false;
+  W.onClose = () => { if (pausedMusic) setMusic(true); };
+  function show(entry) {
+    urlIn.value = entry.url || '';
+    if (entry.note) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = false; note.textContent = entry.note; }
+    else {
+      note.hidden = true; frame.hidden = false; frame.src = embedUrl(entry.url);
+      if (frame.src !== entry.url && !pausedMusic) { pausedMusic = true; setMusic(false); } // a player: don't play over it
+    }
+    W.setTitle(`${entry.title || entry.url} - Internet`);
+    q('.bk').disabled = st.i <= 0; q('.fw').disabled = st.i >= st.hist.length - 1;
+    q('.wb-out').disabled = !entry.url;
+  }
+  function go(entry) {
+    const cur = st.hist[st.i];
+    if (cur && entry.url && cur.url === entry.url) return show(cur); // same page again: just reload
+    st.hist = st.hist.slice(0, st.i + 1); st.hist.push(entry); st.i++; show(entry);
+  }
+  const goUrl = (url, title) => { if (url) go({ url, title }); };
+  q('.bk').onclick = () => { if (st.i > 0) show(st.hist[--st.i]); };
+  q('.fw').onclick = () => { if (st.i < st.hist.length - 1) show(st.hist[++st.i]); };
+  q('.wb-re').onclick = () => { if (st.i >= 0) show(st.hist[st.i]); };
+  q('.wb-home').onclick = () => goUrl(BROWSER.home, 'Home');
+  q('.wb-out').onclick = () => { const e = st.hist[st.i]; if (e && e.url) window.open(e.url, '_blank', 'noopener'); };
+  q('.wb-form').onsubmit = e => { e.preventDefault(); goUrl(toUrl(urlIn.value)); };
+  urlIn.onfocus = () => urlIn.select();
+  const marks = q('.wb-marks');
+  (BROWSER.bookmarks || []).forEach(b => {
+    const btn = el('<button class="tbtn"></button>'); btn.textContent = b.name;
+    btn.onclick = () => b.url ? goUrl(b.url, b.name) : go({ title: b.name, note: `No link for "${b.name}" yet.\n\nAdd one in config.js, under BROWSER > bookmarks.` });
+    marks.append(btn);
+  });
+  if (!marks.children.length) marks.remove();
+  goUrl(start || BROWSER.home, start ? '' : 'Home');
+  return W;
+}
+
 /* ---------- music player ---------- */
 // Plays the songs in a folder in order; background music pauses while it plays.
 let playerWin = null;
@@ -1120,7 +1186,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video', 'audio'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

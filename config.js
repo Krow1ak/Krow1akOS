@@ -38,6 +38,7 @@ const ASSETS = {
     paint:       'assets/icons/paint.png',
     pinball:     'assets/icons/pinball.png',
     music:       'assets/icons/music.png',
+    browser:     'assets/icons/browser.png',
   },
 
   ui: {
@@ -89,6 +90,22 @@ const SOUND = {
 /* Special dates for the calendar (click the clock) */
 const DATES_FILE = 'content/dates.txt';
 
+/* ---------- BROWSER ----------
+   home: the page the browser opens on.
+   bookmarks: buttons under the address bar, in order. url '' = not set up yet.
+   Spotify / YouTube: paste the normal link (open.spotify.com/playlist/...,
+     youtube.com/watch?v=...) and it opens as the embedded player.
+   Lots of big sites (YouTube's homepage, Discord, Instagram...) refuse to show
+   inside another page; the ↗ button opens the current page in a real tab instead. */
+const BROWSER = {
+  home: 'https://www.google.com/webhp?igu=1',
+  bookmarks: [
+    { name: 'Google',    url: 'https://www.google.com/webhp?igu=1' },
+    { name: 'Spotify',   url: '' },   // your playlist link goes here
+    { name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Main_Page' },
+  ],
+};
+
 /* ---------- FILES ----------
    folder('Name', [ ...items ])            a folder
    folder('Name', [ ... ], { art:true })    a folder that shows big picture thumbnails
@@ -105,6 +122,7 @@ const DATES_FILE = 'content/dates.txt';
    wordle()                                the daily Wordle
    paint()                                 Paint
    pinball()                               Pinball
+   browser()                               the web browser (home page and bookmarks are in BROWSER above)
    audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
@@ -154,6 +172,8 @@ const PAINT = paint();
 const PINBALL = pinball();
 const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, PAINT]);
 
+const BROWSER_APP = browser();
+
 const ABOUT = text('About me.txt');
 
 const RECYCLE_BIN = recycleBin([]);
@@ -163,7 +183,7 @@ const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), BROWSER_APP, ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;
@@ -178,6 +198,7 @@ function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweep
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
+function browser(opts = {}) { return { name: 'Internet', type: 'browser', ...opts }; }
 function audio(name, src, opts = {}) { return { name, type: 'audio', src, ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }
 function computer(children, opts = {}) { return { name: 'Computer', type: 'computer', children, ...opts }; }

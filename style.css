@@ -161,6 +161,19 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .pt-c{display:block;background:#fff;touch-action:none}
 .pt-o{position:absolute;left:0;top:0;pointer-events:none}
 
+/* music player */
+.mp{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:10px;background:linear-gradient(#f5f9fd,#dfe9f5)}
+.mp-now{display:flex;gap:10px;align-items:center}
+.mp-art{width:52px;height:52px;flex:none}
+.mp-name{display:block;font-size:13px;word-break:break-word}
+.mp-ctrl{display:flex;gap:6px;align-items:center}
+.mp-ctrl audio{flex:1;min-width:0;height:36px}
+.mp-list{flex:1;min-height:0;overflow:auto;background:#fff;border:1px solid #b9c9da}
+.mp-song{display:flex;gap:6px;align-items:center;width:100%;font:inherit;text-align:left;padding:4px 8px;border:0;background:none;cursor:pointer;color:var(--ink)}
+.mp-song img{width:16px;height:16px}
+.mp-song:hover{background:#e5f1fb}
+.mp-song.on{background:#cce4f7;font-weight:600}
+
 /* pinball */
 .pb{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px;padding:6px;background:#0b0f1e}
 .pb-wrap{flex:1;min-height:0;display:grid;grid-template:minmax(0,1fr)/minmax(0,1fr);place-items:center}

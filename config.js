@@ -36,6 +36,8 @@ const ASSETS = {
     wordle:      'assets/icons/wordle.svg',
     paint:       'assets/icons/paint.svg',
     pinball:     'assets/icons/pinball.svg',
+    music:       'assets/icons/music.svg',
+    folderMusic: 'assets/icons/folder-music.svg',
   },
 
   ui: {
@@ -101,6 +103,7 @@ const DATES_FILE = 'content/dates.txt';
    wordle()                                the daily Wordle
    paint()                                 Paint
    pinball()                               Pinball
+   audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
 
@@ -144,16 +147,21 @@ const PAINT = paint();
 const PINBALL = pinball();
 const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, PAINT]);
 
+/* Songs go in assets/music/, one audio(...) line each. */
+const MUSIC = folder('Music', [
+  audio('corrupted.mp3', 'assets/music/corrupted.mp3'),
+], { icon: ASSETS.icons.folderMusic });
+
 const ABOUT = text('About me.txt');
 
 const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  ARTS, CHUCHA, MEMES, GAMES, folder('Users', [ABOUT]),
+  ARTS, CHUCHA, MEMES, GAMES, MUSIC, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, GAMES, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, GAMES, MUSIC, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;
@@ -168,6 +176,7 @@ function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweep
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
+function audio(name, src, opts = {}) { return { name, type: 'audio', src, ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }
 function computer(children, opts = {}) { return { name: 'Computer', type: 'computer', children, ...opts }; }
 function recycleBin(children, opts = {}) { return { name: 'Recycle Bin', type: 'bin', children, ...opts }; }

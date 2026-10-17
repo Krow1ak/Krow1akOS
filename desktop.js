@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application', audio: 'Audio' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, audio: I.music }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -137,6 +137,7 @@ function openNode(n, folder) {
   if (n.type === 'wordle') return openWordle();
   if (n.type === 'paint') return openPaint();
   if (n.type === 'pinball') return openPinball();
+  if (n.type === 'audio') return openPlayer(n, folder);
 }
 function parentOf(target, n = desktop) {
   for (const c of n.children || []) { if (c === target) return n; if (c.children) { const p = parentOf(target, c); if (p) return p; } }
@@ -782,6 +783,44 @@ function openPaint() {
   return W;
 }
 
+/* ---------- music player ---------- */
+// Plays the songs in a folder in order; background music pauses while it plays.
+let playerWin = null;
+function openPlayer(n, folder) {
+  if (playerWin) { playerWin.play(n, folder); focusWin(playerWin); return playerWin; }
+  const W = makeWin({ title: 'Music Player', icon: I.music, w: 440, h: 340 });
+  W.body.innerHTML = '<div class="mp"><div class="mp-now">' + img(I.music, 'mp-art') + '<div><b class="mp-name"></b><span class="mp-pos dim"></span></div></div>'
+    + `<div class="mp-ctrl"><button class="pvb mp-prev" aria-label="Previous song">${img(U.previous, '')}</button><audio controls preload="metadata"></audio><button class="pvb mp-next" aria-label="Next song">${img(U.next, '')}</button></div>`
+    + '<div class="mp-list" role="list"></div></div>';
+  const au = W.body.querySelector('audio'), listEl = W.body.querySelector('.mp-list');
+  au.volume = snd.volume; au.muted = snd.muted;
+  let songs = [], i = 0;
+  function load() {
+    const s = songs[i];
+    au.src = s.src; au.play().catch(() => {});
+    W.setTitle(`${s.name} - Music Player`);
+    W.body.querySelector('.mp-name').textContent = s.name;
+    W.body.querySelector('.mp-pos').textContent = `Song ${i + 1} of ${songs.length}`;
+    listEl.replaceChildren(...songs.map((t, k) => {
+      const b = el(`<button class="mp-song${k === i ? ' on' : ''}" role="listitem">${img(I.music, '')}<span></span></button>`);
+      b.querySelector('span').textContent = t.name; b.onclick = () => { i = k; load(); }; return b;
+    }));
+  }
+  W.play = (song, f) => {
+    songs = (f || parentOf(song) || desktop).children.filter(c => c.type === 'audio');
+    i = Math.max(0, songs.indexOf(song)); load();
+  };
+  const skip = d => { i = (i + d + songs.length) % songs.length; load(); };
+  W.body.querySelector('.mp-prev').onclick = () => skip(-1);
+  W.body.querySelector('.mp-next').onclick = () => skip(1);
+  au.onended = () => skip(1);
+  au.onplay = () => setMusic(false);
+  W.onClose = () => { au.pause(); au.removeAttribute('src'); au.load(); playerWin = null; setMusic(true); };
+  playerWin = W;
+  W.play(n, folder);
+  return W;
+}
+
 /* ---------- pinball ---------- */
 let pbWin = null;
 function openPinball() {
@@ -1081,7 +1120,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video', 'audio'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

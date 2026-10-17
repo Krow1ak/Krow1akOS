@@ -16,42 +16,42 @@ const NOT_HIM_MESSAGE = 'You are not HIM :)';
 const ASSETS = {
   wallpaper: 'assets/wallpaper.png',
   taskbar:   'assets/taskbar.png',          // repeats sideways, 40px tall looks best
-  startOrb:  'assets/ui/start-orb.svg',
-  watermark: 'assets/ui/watermark-paw.svg', // faint mark on the wallpaper; set to '' to hide
+  startOrb:  'assets/ui/start-orb.png',
+  watermark: 'assets/ui/watermark-paw.png', // faint mark on the wallpaper; set to '' to hide
   avatar:    'assets/icons/avatar.png',     // picture in the start menu
 
   icons: {
     folder:      'assets/icons/folder.svg',
     folderArts:  'assets/icons/folder-arts.svg',
-    folderMusic: 'assets/icons/folder-music.svg',
+    folderMusic: 'assets/icons/folder-music.png',
     textFile:    'assets/icons/text-file.svg',
     computer:    'assets/icons/computer.svg',
     drive:       'assets/icons/drive.svg',
     binEmpty:    'assets/icons/recycle-bin-empty.svg',
     binFull:     'assets/icons/recycle-bin-full.svg',
-    notepad:     'assets/icons/notepad.svg',
-    photoViewer: 'assets/icons/photo-viewer.svg',
+    notepad:     'assets/icons/notepad.png',
+    photoViewer: 'assets/icons/photo-viewer.png',
     info:        'assets/icons/info.svg',
     video:       'assets/icons/video.svg',
     minesweeper: 'assets/icons/minesweeper.svg',
     wordle:      'assets/icons/wordle.svg',
-    paint:       'assets/icons/paint.svg',
-    pinball:     'assets/icons/pinball.svg',
+    paint:       'assets/icons/paint.png',
+    pinball:     'assets/icons/pinball.png',
   },
 
   ui: {
-    minimize: 'assets/ui/minimize.svg',
-    maximize: 'assets/ui/maximize.svg',
-    close:    'assets/ui/close.svg',
-    back:     'assets/ui/back.svg',
-    forward:  'assets/ui/forward.svg',
-    up:       'assets/ui/up.svg',
-    previous: 'assets/ui/previous.svg',
-    next:     'assets/ui/next.svg',
-    play:     'assets/ui/play.svg',
-    pause:    'assets/ui/pause.svg',
-    volume:   'assets/ui/volume.svg',
-    mute:     'assets/ui/volume-mute.svg',
+    minimize: 'assets/ui/minimize.png',
+    maximize: 'assets/ui/maximize.png',
+    close:    'assets/ui/close.png',
+    back:     'assets/ui/back.png',
+    forward:  'assets/ui/forward.png',
+    up:       'assets/ui/up.png',
+    previous: 'assets/ui/previous.png',
+    next:     'assets/ui/next.png',
+    play:     'assets/ui/play.png',
+    pause:    'assets/ui/pause.png',
+    volume:   'assets/ui/volume.png',
+    mute:     'assets/ui/volume-mute.png',
   },
 };
 

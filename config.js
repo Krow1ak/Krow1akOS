@@ -37,6 +37,7 @@ const ASSETS = {
     wordle:      'assets/icons/wordle.png',
     paint:       'assets/icons/paint.png',
     pinball:     'assets/icons/pinball.png',
+    music:       'assets/icons/music.png',
   },
 
   ui: {
@@ -104,6 +105,7 @@ const DATES_FILE = 'content/dates.txt';
    wordle()                                the daily Wordle
    paint()                                 Paint
    pinball()                               Pinball
+   audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
    To edit what a note says, just edit its .txt file in the content folder. */
 
@@ -141,8 +143,10 @@ const MEMES = folder('Memes', [
   picture('meme_4.png', 'assets/memes/meme_4.png'),
 ], { art: true });
 
-/* Empty for now — a place for music later */
-const MUSIC = folder('Music', [], { icon: ASSETS.icons.folderMusic });
+/* Songs go in assets/music/, one audio(...) line each. */
+const MUSIC = folder('Music', [
+  audio('corrupted.mp3', 'assets/music/corrupted.mp3'),
+], { icon: ASSETS.icons.folderMusic });
 
 const MINESWEEPER = minesweeper();
 const WORDLE = wordle();
@@ -174,6 +178,7 @@ function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweep
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
+function audio(name, src, opts = {}) { return { name, type: 'audio', src, ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }
 function computer(children, opts = {}) { return { name: 'Computer', type: 'computer', children, ...opts }; }
 function recycleBin(children, opts = {}) { return { name: 'Recycle Bin', type: 'bin', children, ...opts }; }

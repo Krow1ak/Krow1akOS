@@ -23,6 +23,7 @@ const ASSETS = {
   icons: {
     folder:      'assets/icons/folder.svg',
     folderArts:  'assets/icons/folder-arts.svg',
+    folderMusic: 'assets/icons/folder-music.svg',
     textFile:    'assets/icons/text-file.svg',
     computer:    'assets/icons/computer.svg',
     drive:       'assets/icons/drive.svg',
@@ -138,6 +139,9 @@ const MEMES = folder('Memes', [
   picture('meme_4.png', 'assets/memes/meme_4.png'),
 ], { art: true });
 
+/* Empty for now — a place for music later */
+const MUSIC = folder('Music', [], { icon: ASSETS.icons.folderMusic });
+
 const MINESWEEPER = minesweeper();
 const WORDLE = wordle();
 const PAINT = paint();
@@ -149,11 +153,11 @@ const ABOUT = text('About me.txt');
 const RECYCLE_BIN = recycleBin([]);
 
 const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
-  ARTS, CHUCHA, MEMES, GAMES, folder('Users', [ABOUT]),
+  ARTS, CHUCHA, MEMES, MUSIC, GAMES, folder('Users', [ABOUT]),
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, GAMES, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = ABOUT;

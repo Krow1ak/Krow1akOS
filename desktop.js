@@ -859,7 +859,8 @@ function openPlayer(n, folder) {
     + `<div class="mp-ctrl"><button class="pvb mp-prev" aria-label="Previous song">${img(U.previous, '')}</button><audio controls preload="metadata"></audio><button class="pvb mp-next" aria-label="Next song">${img(U.next, '')}</button></div>`
     + '<div class="mp-list" role="list"></div></div>';
   const au = W.body.querySelector('audio'), listEl = W.body.querySelector('.mp-list');
-  au.volume = snd.volume; au.muted = snd.muted;
+  // follow the speaker button when there is one; without background music it's hidden
+  if (music) { au.volume = snd.volume; au.muted = snd.muted; } else au.volume = SOUND.musicVolume;
   let songs = [], i = 0;
   function load() {
     const s = songs[i];

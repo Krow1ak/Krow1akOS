@@ -75,10 +75,12 @@ const WINDOW_LOOK = {
    music: background track that loops. Browsers only allow sound after the visitor
      clicks or presses a key, so it starts then. '' = no music (hides the speaker button).
    musicVolume / videoVolume: 0 = silent, 0.35 = 35%, 1 = full.
+   startMuted: true = music is off until the visitor unmutes it, false = it plays.
    Visitors change the music volume with the speaker button next to the clock;
    their choice is remembered in their browser. */
 const SOUND = {
   music:       'assets/music/corrupted.mp3',
+  startMuted:  true,
   musicVolume: 0.35,
   videoVolume: 0.35,
 };

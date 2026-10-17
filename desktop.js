@@ -1210,7 +1210,7 @@ tick(); setInterval(tick, 1000);
 const volBtn = document.getElementById('vol'), volPop = document.getElementById('volpop');
 const volRange = document.getElementById('vol-range'), volPct = document.getElementById('vol-pct'), volMute = document.getElementById('vol-mute');
 const music = SOUND.music ? new Audio() : null;
-const snd = store.get('sound', { volume: SOUND.musicVolume, muted: false }); // the visitor's own choice wins
+const snd = store.get('sound', { volume: SOUND.musicVolume, muted: !!SOUND.startMuted }); // the visitor's own choice wins
 let musicOn = true;
 if (music) { music.loop = true; music.preload = 'none'; music.src = SOUND.music; }
 function applyVolume() {

@@ -1,5 +1,6 @@
 /* LaisaOS — styles. Colors for windows, taskbar and selection are the variables right below. */
 :root{
+  --me:#5b6ee1;
   --glass:rgba(150,190,230,.62);        /* active window frame */
   --glass-dim:rgba(170,195,220,.48);    /* inactive window frame */
   --glass-edge:rgba(255,255,255,.6);
@@ -33,6 +34,12 @@ img{-webkit-user-drag:none}
 .dicon.sel,.dicon:focus-visible{background:rgba(160,210,255,.32);border-color:rgba(220,240,255,.6)}
 .dicon.dragging{position:relative;z-index:2;opacity:.8}
 .selbox{position:absolute;border:1px solid rgba(140,200,255,.95);background:rgba(90,160,240,.28);pointer-events:none;z-index:3}
+/* selections follow your color (set in the Multiplayer window); others' show outlined in theirs */
+.dicon.sel,.dicon:focus-visible{background:color-mix(in srgb,var(--me) 38%,transparent);border-color:color-mix(in srgb,var(--me) 60%,white)}
+.selbox{border-color:color-mix(in srgb,var(--me) 70%,white);background:color-mix(in srgb,var(--me) 28%,transparent)}
+.dicon.rsel{outline:2px solid var(--rc);outline-offset:-1px;border-radius:3px}
+.dicon.rsel:not(.sel){background:color-mix(in srgb,var(--rc) 22%,transparent)}
+.selbox.remote{border:1px dashed var(--rc);background:color-mix(in srgb,var(--rc) 18%,transparent)}
 .drop.ctx{position:fixed;top:0;z-index:99002}
 
 /* windows */
@@ -102,6 +109,9 @@ img.px{image-rendering:pixelated}
 .fi .lb{word-break:break-word;line-height:1.25}
 .fi:hover{background:linear-gradient(#f5faff,#e6f2fd);border-color:#bcdcf6}
 .fi.sel,.fi:focus-visible{background:linear-gradient(#e2f1fe,#c9e4fb);border-color:var(--sel-edge)}
+.fi.sel,.fi:focus-visible{background:color-mix(in srgb,var(--me) 20%,white);border-color:color-mix(in srgb,var(--me) 70%,white)}
+.fi.rsel{box-shadow:inset 0 0 0 2px var(--rc)}
+.fi.rsel:not(.sel){background:color-mix(in srgb,var(--rc) 14%,white)}
 .fi.drive{grid-column:span 2;flex-direction:row;text-align:left;gap:10px}
 .fi.drive .meta{flex:1;display:flex;flex-direction:column;gap:3px}
 .bar{height:13px;border:1px solid #9aa9b8;background:#e6e6e6}

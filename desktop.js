@@ -249,6 +249,29 @@ function openRemote(m) {
   });
   if (m.st && W.setState) W.setState(m.st);
 }
+// selections: mine are sent as they change, other people's show outlined in their color
+const lastSel = {};
+const selTimers = {};
+function watchSel(root, where) { // where() -> 'desk' or a window's sid
+  const mo = new MutationObserver(() => {
+    const k = where(); if (!k || !live()) return;
+    clearTimeout(selTimers[k]);
+    selTimers[k] = setTimeout(() => {
+      const keys = [...root.querySelectorAll('.sel[data-k]')].map(e => e.dataset.k), json = JSON.stringify(keys);
+      if (lastSel[k] === json) return; // painting someone else's selection changes classes too
+      lastSel[k] = json; mpSend({ t: 'sel', w: k, k: keys });
+    }, 40);
+  });
+  mo.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['class'] });
+  return mo;
+}
+function paintSel() {
+  document.querySelectorAll('.rsel').forEach(e => { e.classList.remove('rsel'); e.style.removeProperty('--rc'); });
+  mp.peers.forEach(p => Object.entries(p.sel || {}).forEach(([where, keys]) => {
+    const W = where !== 'desk' && bySid(where), root = where === 'desk' ? dEl : W && W.el.querySelector('.files');
+    if (root) keys.forEach(k => { const e = root.querySelector(`[data-k="${CSS.escape(k)}"]`); if (e) { e.classList.add('rsel'); e.style.setProperty('--rc', p.color); } });
+  }));
+}
 function closeWin(W) { if (W.sid) mpSend({ t: 'close', sid: W.sid }); W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1); focusTop(); }
 
 /* ---------- "you are not him" ---------- */
@@ -334,6 +357,7 @@ function openExplorer(start) {
     if (!list.length) files.append(el(`<div class="empty">${st.filter ? 'No items match your search.' : 'This folder is empty.'}</div>`));
     list.forEach(c => {
       const item = el(`<div class="fi${c.type === 'drive' ? ' drive' : ''}" role="listitem" tabindex="0"><div class="ic">${iconFor(c)}</div></div>`);
+      item.dataset.k = nodeKey(c);
       if (c.type === 'drive') item.append(el(`<div class="meta"><span>${esc(c.name)}</span><div class="bar"><i style="width:${(c.used || 0) * 100}%"></i></div><span class="dim">${esc(c.free || '')}</span></div>`));
       else { const lb = el('<div class="lb"></div>'); lb.textContent = c.name; item.append(lb); }
       item.onclick = () => { files.querySelectorAll('.fi').forEach(f => f.classList.remove('sel')); item.classList.add('sel'); st.sel = c; details(c); if (touchy) open(c); };
@@ -342,7 +366,7 @@ function openExplorer(start) {
       files.append(item);
     });
     st.sel = null; details(null);
-    W.push();
+    W.push(); if (live()) paintSel();
   }
   function open(c) { if (isFolder(c)) go(c); else openNode(c, cur()); }
   function details(c) {
@@ -350,6 +374,8 @@ function openExplorer(start) {
     if (!c) { d.innerHTML = `<span class="ic">${img(iconSrc(n))}</span><span>${n.children.length} item${n.children.length === 1 ? '' : 's'}</span>`; return; }
     d.innerHTML = `<span class="ic">${img(iconSrc(c))}</span><span><b>${esc(c.name)}</b><br><span class="dim">${typeName(c)}</span></span>`;
   }
+  const selWatch = watchSel(W.body.querySelector('.files'), () => W.sid);
+  W.onClose = () => selWatch.disconnect();
   shareState(W, () => ({ f: nodeKey(cur()) }), d => { const f = keyNodes.get(d.f); if (f && f !== cur()) go(f); });
   render(); return W;
 }
@@ -1709,7 +1735,7 @@ const dEl = document.getElementById('desktop');
 const GRID_W = 86, GRID_H = 94; // one icon cell + the gap, matches #desktop in style.css
 const icons = DESKTOP_ITEMS.map(n => {
   const d = el(`<div class="dicon" role="listitem" tabindex="0"><div class="ic">${img(iconSrc(n))}</div><div class="lb"></div></div>`);
-  d.querySelector('.lb').textContent = n.name; d.node = n;
+  d.querySelector('.lb').textContent = n.name; d.node = n; d.dataset.k = nodeKey(n);
   dEl.append(d); return d;
 });
 let iconPos = store.get('desktop-pos', {}); // { name: [column, row] }
@@ -1800,8 +1826,11 @@ icons.forEach(d => {
   };
 });
 
+watchSel(dEl, () => 'desk');
+
 // drag a box on empty desktop to select icons (Ctrl adds to the selection)
-let box = null;
+let box = null, boxSent = 0;
+const tellBox = r => { if (live() && (!r || performance.now() - boxSent > 40)) { boxSent = performance.now(); mpSend({ t: 'box', r }); } };
 dEl.addEventListener('pointerdown', e => {
   closeCtx();
   if (e.target !== dEl || e.button !== 0) return;
@@ -1816,9 +1845,10 @@ dEl.addEventListener('pointermove', e => {
   if (!box) return;
   const l = Math.min(box.x, e.clientX), t = Math.min(box.y, e.clientY), rr = Math.max(box.x, e.clientX), b = Math.max(box.y, e.clientY);
   Object.assign(box.el.style, { left: l - box.r0.left + 'px', top: t - box.r0.top + 'px', width: rr - l + 'px', height: b - t + 'px' });
+  tellBox([l - box.r0.left, t - box.r0.top, rr - l, b - t]);
   selectOnly([...box.base, ...icons.filter(d => { const q = d.getBoundingClientRect(); return q.left < rr && q.right > l && q.top < b && q.bottom > t; })]);
 });
-const endBox = () => { if (box) { box.el.remove(); box = null; } };
+const endBox = () => { if (box) { box.el.remove(); box = null; tellBox(null); } };
 dEl.addEventListener('pointerup', endBox);
 dEl.addEventListener('pointercancel', endBox);
 
@@ -2026,6 +2056,9 @@ applyVolume();
 // other, so there's no server or database; the shared desktop lives in the open browsers.
 const MP_COLORS = ['#e8445a', '#f08c2e', '#e6c229', '#3bb273', '#2fa7d8', '#5b6ee1', '#a35bd8', '#e55fae'];
 const me = { name: store.get('mp-name', `Guest ${100 + Math.floor(Math.random() * 900)}`), color: store.get('mp-color', MP_COLORS[Math.floor(Math.random() * MP_COLORS.length)]) };
+store.set('mp-name', me.name); store.set('mp-color', me.color);
+const applyMyColor = () => document.documentElement.style.setProperty('--me', me.color);
+applyMyColor();
 let room = null, roomCode = '', since = 0, synced = false, mpPanel = null, mpLib = null, mpError = '';
 const mpBtn = document.getElementById('mpb');
 const roomFromUrl = () => (location.hash.match(/room=([\w-]+)/) || [])[1] || '';
@@ -2080,14 +2113,14 @@ async function joinRoom(code) {
   room.onPeerJoin = peerId => hello(peerId);
   room.onPeerLeave = peerId => {
     const p = mp.peers.get(peerId); if (!p) return;
-    p.cur.remove(); mp.peers.delete(peerId); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
+    p.cur.remove(); if (p.box) p.box.remove(); mp.peers.delete(peerId); paintSel(); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
   };
   history.replaceState(null, '', '#room=' + roomCode);
   refreshMp();
 }
 async function leaveRoom() {
   const r = room; room = null; mp.send = null; roomCode = '';
-  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear(); chatLog.length = 0; unread = 0; pickRoomClock();
+  mp.peers.forEach(p => { p.cur.remove(); if (p.box) p.box.remove(); }); mp.peers.clear(); paintSel(); chatLog.length = 0; unread = 0; pickRoomClock();
   history.replaceState(null, '', location.pathname + location.search);
   refreshMp();
   if (r) await r.leave().catch(() => {});
@@ -2117,6 +2150,14 @@ function receive(m, from) {
   }
   asRemote(() => {
     if (m.t === 'cur') return moveCursor(p, m);
+    if (m.t === 'sel' && Array.isArray(m.k) && typeof m.w === 'string') { (p.sel ||= {})[m.w] = m.k.slice(0, 500).map(String); return paintSel(); }
+    if (m.t === 'box') { // their drag-select box on the desktop
+      if (!Array.isArray(m.r)) { if (p.box) { p.box.remove(); p.box = null; } return; }
+      if (!p.box) { p.box = el('<div class="selbox remote"></div>'); p.box.style.setProperty('--rc', p.color); dEl.append(p.box); }
+      const [x, y, w, h] = m.r.map(Number);
+      Object.assign(p.box.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+      return;
+    }
     if (m.t === 'snap') { // someone who was here first: show their desktop instead of mine
       if (synced || m.since >= since) return;
       synced = true;
@@ -2205,7 +2246,7 @@ function openMpPanel() {
     q('.mp-chat').hidden = !room;
     const name = q('.mp-name'); name.value = me.name;
     name.onchange = () => { me.name = name.value.trim().slice(0, 24) || me.name; store.set('mp-name', me.name); hello(); W.render(); };
-    W.body.querySelectorAll('.mp-sw').forEach(b => b.onclick = () => { me.color = b.dataset.c; store.set('mp-color', me.color); hello(); W.render(); });
+    W.body.querySelectorAll('.mp-sw').forEach(b => b.onclick = () => { me.color = b.dataset.c; store.set('mp-color', me.color); applyMyColor(); hello(); paintSel(); W.render(); });
     if (room) {
       W.status();
       q('.mp-url').value = inviteLink();

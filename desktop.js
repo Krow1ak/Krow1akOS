@@ -70,7 +70,7 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
   const win = el(`<div class="win opening ${cls}" role="dialog" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">
     <div class="tb"><span class="ti">${img(icon)}</span><span class="ttl"></span>
     <div class="caps">${noMax ? '' : `<button class="cap mn" aria-label="Minimize">${img(U.minimize, '')}</button><button class="cap mx" aria-label="Maximize">${img(U.maximize, '')}</button>`}<button class="cap cls" aria-label="Close">${img(U.close, '')}</button></div></div>
-    <div class="wbody"></div></div>`);
+    <div class="wbody"></div>${noMax ? '' : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(d => `<div class="rz ${d}" data-d="${d}"></div>`).join('')}</div>`);
   document.body.insertBefore(win, document.getElementById('taskbar'));
   const tk = el(`<button class="tk">${img(icon)}</button>`);
   document.getElementById('tasks').append(tk);
@@ -96,16 +96,42 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
     if (e.target.closest('.caps') || innerWidth <= 640) return;
     if (win.classList.contains('max')) { const r = e.clientX / innerWidth; toggleMax(W); win.style.left = (e.clientX - win.offsetWidth * r) + 'px'; win.style.top = '0px'; }
     const ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop; tb.setPointerCapture(e.pointerId);
-    let sent = 0;
-    const tell = () => { if (W.sid) { sent = performance.now(); mpSend({ t: 'mv', sid: W.sid, x: win.offsetLeft, y: win.offsetTop }); } };
     const mv = ev => {
       win.style.left = Math.min(innerWidth - 60, Math.max(60 - win.offsetWidth, ev.clientX - ox)) + 'px'; win.style.top = Math.min(innerHeight - 80, Math.max(0, ev.clientY - oy)) + 'px';
-      if (performance.now() - sent > 40) tell();
+      tellRect(W);
     };
-    const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); tell(); };
+    const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); tellRect(W, true); };
     tb.addEventListener('pointermove', mv); tb.addEventListener('pointerup', up);
   });
+  // resize from any edge or corner
+  win.querySelectorAll('.rz').forEach(h => h.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || innerWidth <= 640 || win.classList.contains('max')) return;
+    e.preventDefault(); e.stopPropagation(); focusWin(W);
+    const d = h.dataset.d, sx = e.clientX, sy = e.clientY, [x0, y0, w0, h0] = [win.offsetLeft, win.offsetTop, win.offsetWidth, win.offsetHeight];
+    const minW = 260, minH = 140;
+    h.setPointerCapture(e.pointerId);
+    const mv = ev => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      let x = x0, y = y0, w = w0, hh = h0;
+      if (d.includes('e')) w = Math.max(minW, w0 + dx);
+      if (d.includes('s')) hh = Math.max(minH, h0 + dy);
+      if (d.includes('w')) { w = Math.max(minW, w0 - dx); x = x0 + w0 - w; }
+      if (d.includes('n')) { hh = Math.max(minH, h0 - dy); y = Math.max(0, y0 + h0 - hh); hh = y0 + h0 - y; }
+      Object.assign(win.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: hh + 'px' });
+      tellRect(W);
+    };
+    const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); h.removeEventListener('pointercancel', up); tellRect(W, true); };
+    h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up); h.addEventListener('pointercancel', up);
+  }));
   focusWin(W); return W;
+}
+// position and size go out together, at most every 40ms while dragging plus once at the end
+function tellRect(W, final) {
+  if (!W.sid || !live()) return;
+  const now = performance.now();
+  if (!final && now - (W.rectSent || 0) < 40) return;
+  W.rectSent = now;
+  mpSend({ t: 'rect', sid: W.sid, r: [W.el.offsetLeft, W.el.offsetTop, W.el.offsetWidth, W.el.offsetHeight] });
 }
 function toggleMax(W) {
   const s = W.el.style;
@@ -482,7 +508,7 @@ function openMinesweeper() {
     const iv = setInterval(() => { if (note.isConnected && !note.hidden) tickNext(); else clearInterval(iv); }, 1000);
     const btns = add('div', ''); btns.className = 'ms-note-btns';
     const lb = el('<button class="okbtn">Leaderboard</button>'); lb.onclick = () => openMsLeaderboard(level);
-    const fp = el('<button class="okbtn">Free play</button>'); fp.onclick = () => newGame(level, false);
+    const fp = el('<button class="okbtn">Free play</button>'); fp.onclick = () => restart(level, false);
     btns.append(lb, fp);
   }
   function fitWindow() {
@@ -571,7 +597,15 @@ function openMinesweeper() {
   let hold = null, held = false;
   const cellOf = e => { const d = e.target.closest('.ms-c'); return d ? +d.dataset.i : -1; };
   grid.addEventListener('contextmenu', e => e.preventDefault());
-  // the board is shared: whoever clicks sends the whole board (mines included) to the others
+  // In a room the opener's computer holds the real board; other players' clicks are sent there and
+  // the whole board comes back. (If everyone changed their own copy, two quick clicks would clash.)
+  const ask = (d, fn) => { if (isLead(W)) { fn(); W.push(); } else sendInput(W, d); };
+  const restart = (lv = level, dy = daily) => ask({ new: [lv, dy] }, () => newGame(lv, dy));
+  W.onInput = d => {
+    if (d.new) return restart(...d.new);
+    const i = d.flag ?? d.hit; if (!(i >= 0 && i < cells.length) || over) return;
+    if (d.flag != null) ask(d, () => toggleFlag(i)); else ask(d, () => cells[i].open ? chord(i) : open(i));
+  };
   shareState(W, () => ({ level, daily, today, over, started, boom, el: started ? performance.now() - t0 : 0,
     c: cells.map(c => (c.mine ? 1 : 0) | (c.open ? 2 : 0) | (c.flag ? 4 : 0)) }), d => {
     if (d.level !== level || cells.length !== d.c.length) newGame(d.level, false);
@@ -589,26 +623,25 @@ function openMinesweeper() {
   });
   grid.addEventListener('pointerdown', e => {
     const i = cellOf(e); if (i < 0 || over) return;
-    if (e.button === 2) { toggleFlag(i); W.push(); return; }
+    if (e.button === 2) { ask({ flag: i }, () => toggleFlag(i)); return; }
     if (e.button !== 0) return;
     face.textContent = FACE.press; held = false;
-    if (e.pointerType !== 'mouse') hold = setTimeout(() => { held = true; toggleFlag(i); face.textContent = FACE.ok; W.push(); }, 400);
+    if (e.pointerType !== 'mouse') hold = setTimeout(() => { held = true; ask({ flag: i }, () => toggleFlag(i)); face.textContent = FACE.ok; }, 400);
   });
   grid.addEventListener('pointerup', e => {
     clearTimeout(hold);
     const i = cellOf(e); if (e.button !== 0 || over) return;
     face.textContent = FACE.ok;
     if (held || i < 0) return;
-    cells[i].open ? chord(i) : open(i);
-    W.push();
+    ask({ hit: i }, () => cells[i].open ? chord(i) : open(i));
   });
   grid.addEventListener('pointerleave', () => { clearTimeout(hold); if (!over) face.textContent = FACE.ok; });
-  face.onclick = () => newGame();
+  face.onclick = () => restart();
 
   menuBar(W, q('.menu'), {
-    Game: [['New', () => newGame()],
-      ...Object.keys(MS_LEVELS).map(lv => [lv, () => newGame(lv), () => level === lv]),
-      ['Daily challenge', () => newGame(level, !daily), () => daily],
+    Game: [['New', () => restart()],
+      ...Object.keys(MS_LEVELS).map(lv => [lv, () => restart(lv), () => level === lv]),
+      ['Daily challenge', () => restart(level, !daily), () => daily],
       ['Leaderboard', () => openMsLeaderboard(level)],
       ['Close', () => closeWin(W)]],
   });
@@ -695,6 +728,20 @@ function openWordle() {
   document.addEventListener('keydown', onKey);
   W.onClose = () => { document.removeEventListener('keydown', onKey); clearInterval(clock); clearTimeout(msgTimer); wordWin = null; };
   wordWin = W;
+  // In a room everyone plays one board together: keys go to the opener's computer, which checks the
+  // guesses and sends the board back. Solving it together counts as your daily game too, unless you'd
+  // already finished yours.
+  const ownDone = state.done;
+  const get = () => ({ g: state.guesses, cur, done: state.done, won: state.won });
+  shareState(W, get, d => {
+    const was = state.done;
+    state.guesses = d.g; state.done = d.done; state.won = d.won; cur = d.cur;
+    if (!words) return;
+    render();
+    if (d.shake) shake();
+    if (d.say) say(d.say);
+    if (!was && state.done) { if (ownDone) say(state.won ? 'Solved!' : answer.toUpperCase(), 0); else { store.set(`wordle2:${today}`, state); finish(); } }
+  });
 
   function render() {
     const best = {}, rank = { absent: 1, present: 2, correct: 3 };
@@ -712,20 +759,23 @@ function openWordle() {
   function shake() { const row = gridEl.children[state.guesses.length]; row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake'); }
   function press(k) {
     if (!words || state.done) return;
+    if (!isLead(W)) return sendInput(W, { k });
     if (k === 'Enter') return submit();
     if (k === 'Backspace') cur = cur.slice(0, -1);
     else if (cur.length < 5) cur += k;
-    render();
+    render(); W.push();
   }
+  W.onInput = d => { if (typeof d.k === 'string' && (/^[a-z]$/.test(d.k) || d.k === 'Enter' || d.k === 'Backspace')) press(d.k); };
+  const nope = text => { say(text); shake(); W.push({ ...get(), say: text, shake: 1 }); };
   function submit() {
-    if (cur.length < 5) { say('Not enough letters'); return shake(); }
-    if (!words.allowed.has(cur)) { say('Not in word list'); return shake(); }
+    if (cur.length < 5) return nope('Not enough letters');
+    if (!words.allowed.has(cur)) return nope('Not in word list');
     state.guesses.push(cur);
     if (cur === answer) state.done = state.won = true;
     else if (state.guesses.length === 6) state.done = true;
     cur = '';
     store.set(`wordle2:${today}`, state);
-    render();
+    render(); W.push();
     if (state.done) finish();
   }
   function finish() {
@@ -783,18 +833,19 @@ const PAINT_TOOLS = [['pencil', '✏️', 'Pencil'], ['brush', '🖌️', 'Brush
 const PAINT_SIZES = [2, 5, 10, 20];
 const FREEHAND = ['pencil', 'brush', 'eraser'];
 function openPaint() {
-  const W = makeWin({ title: 'Untitled - Paint', icon: I.paint, w: 880, h: 620 });
+  const W = makeWin({ title: 'Untitled - Paint', icon: I.paint, w: 900, h: 690 });
   W.body.innerHTML = '<div class="pt-tools"><div class="pt-g pt-set"></div><div class="pt-g pt-sizes"></div>'
     + '<div class="pt-g"><span class="pt-sw c1" title="Color 1 (left mouse button)"></span><span class="pt-sw c2" title="Color 2 (right mouse button)"></span></div>'
     + '<div class="pt-g"><div class="pt-pal"></div><input type="color" class="pt-custom" title="Pick any color for color 1" aria-label="Custom color"></div>'
     + '<div class="pt-g pt-act"></div></div>'
-    + '<div class="pt-area"><div class="pt-stage"><canvas class="pt-c" width="800" height="480"></canvas><canvas class="pt-o" width="800" height="480"></canvas></div></div>'
-    + '<div class="status"><span class="pt-pos">Left click: color 1 · right click: color 2</span><span>800 × 480px</span></div>';
+    + '<div class="pt-area"><div class="pt-stage"><canvas class="pt-c" width="800" height="480"></canvas><canvas class="pt-o" width="800" height="480"></canvas>'
+    + '<div class="pt-rz e" data-d="e" title="Drag to resize the picture"></div><div class="pt-rz s" data-d="s" title="Drag to resize the picture"></div><div class="pt-rz se" data-d="se" title="Drag to resize the picture"></div><div class="pt-ghost" hidden></div></div></div>'
+    + '<div class="status"><span class="pt-pos">Left click: color 1 · right click: color 2</span><span class="pt-size"></span>'
+    + '<span class="pt-zoom"><button class="pt-zb" data-z="-1" aria-label="Zoom out" title="Zoom out (Ctrl+scroll)">−</button><span class="pt-zv"></span><button class="pt-zb" data-z="1" aria-label="Zoom in" title="Zoom in (Ctrl+scroll)">+</button></span></div>';
   const q = sel => W.body.querySelector(sel);
   const cv = q('.pt-c'), ov = q('.pt-o'), g = cv.getContext('2d', { willReadFrequently: true }), go = ov.getContext('2d');
   let tool = 'pencil', size = 5, c1 = '#000000', c2 = '#ffffff', drawing = null;
   const undo = [], redo = [];
-  g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height);
 
   const btn = (cls, html, title, fn) => { const b = el(`<button class="${cls}"></button>`); b.innerHTML = html; b.title = title; b.setAttribute('aria-label', title); b.onclick = fn; return b; };
   const toolBtns = PAINT_TOOLS.map(([id, icon, title]) => { const b = btn('pt-b', esc(icon), title, () => { tool = id; refresh(); }); b.dataset.t = id; return b; });
@@ -826,12 +877,56 @@ function openPaint() {
 
   const all = () => g.getImageData(0, 0, cv.width, cv.height);
   function snap() { undo.push(all()); if (undo.length > 30) undo.shift(); redo.length = 0; }
-  function doUndo() { if (undo.length) { redo.push(all()); g.putImageData(undo.pop(), 0, 0); W.push(); } }
-  function doRedo() { if (redo.length) { undo.push(all()); g.putImageData(redo.pop(), 0, 0); W.push(); } }
+  const restore = im => { if (im.width !== cv.width || im.height !== cv.height) setSize(im.width, im.height, false); g.putImageData(im, 0, 0); };
+  function doUndo() { if (undo.length) { redo.push(all()); restore(undo.pop()); W.push(); } }
+  function doRedo() { if (redo.length) { undo.push(all()); restore(redo.pop()); W.push(); } }
+
+  // picture size (drag the handles at its edges) and zoom
+  const ZOOMS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8];
+  let zoom = 1;
+  function applyZoom() {
+    [cv, ov].forEach(c => { c.style.width = cv.width * zoom + 'px'; c.style.height = cv.height * zoom + 'px'; });
+    cv.classList.toggle('px', zoom > 1);
+    q('.pt-zv').textContent = Math.round(zoom * 100) + '%';
+    q('.pt-size').textContent = `${cv.width} × ${cv.height}px`;
+  }
+  const zoomBy = step => { zoom = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoom) + step))]; applyZoom(); };
+  W.body.querySelectorAll('.pt-zb').forEach(b => b.onclick = () => zoomBy(+b.dataset.z));
+  q('.pt-area').addEventListener('wheel', e => { if (!e.ctrlKey) return; e.preventDefault(); zoomBy(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+  function setSize(w, h, keep = true) { // new space is white; the picture stays in the top-left corner
+    const old = keep ? all() : null;
+    cv.width = ov.width = w; cv.height = ov.height = h;
+    clear(); if (old) g.putImageData(old, 0, 0);
+    applyZoom();
+  }
+  const ghost = q('.pt-ghost');
+  W.body.querySelectorAll('.pt-rz').forEach(hd => hd.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    e.preventDefault(); hd.setPointerCapture(e.pointerId);
+    const d = hd.dataset.d, sx = e.clientX, sy = e.clientY, w0 = cv.width, h0 = cv.height;
+    let w = w0, h = h0;
+    const mv = ev => {
+      if (d.includes('e')) w = Math.max(1, Math.min(4000, Math.round(w0 + (ev.clientX - sx) / zoom)));
+      if (d.includes('s')) h = Math.max(1, Math.min(4000, Math.round(h0 + (ev.clientY - sy) / zoom)));
+      ghost.hidden = false; ghost.style.width = w * zoom + 'px'; ghost.style.height = h * zoom + 'px';
+      q('.pt-size').textContent = `${w} × ${h}px`;
+    };
+    const up = () => {
+      hd.removeEventListener('pointermove', mv); hd.removeEventListener('pointerup', up); hd.removeEventListener('pointercancel', up);
+      ghost.hidden = true;
+      if (w !== w0 || h !== h0) { snap(); setSize(w, h); W.push(); } else applyZoom();
+    };
+    hd.addEventListener('pointermove', mv); hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up);
+  }));
+  clear(); applyZoom();
+  requestAnimationFrame(() => { // start zoomed out if the picture doesn't fit the window (small screens)
+    const a = q('.pt-area'), fit = Math.min((a.clientWidth - 30) / cv.width, (a.clientHeight - 30) / cv.height);
+    if (fit < 1) { zoom = [...ZOOMS].reverse().find(z => z <= fit) || ZOOMS[0]; applyZoom(); }
+  });
   function clear() { g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); }
   // in a room every stroke is sent as it's drawn; undo, redo and joining send the whole picture
   shareState(W, () => ({ img: cv.toDataURL() }), d => {
-    if (d.img) { const im = new Image(); im.onload = () => { clear(); g.drawImage(im, 0, 0); }; im.src = d.img; }
+    if (d.img) { const im = new Image(); im.onload = () => { setSize(im.naturalWidth, im.naturalHeight, false); g.drawImage(im, 0, 0); }; im.src = d.img; }
     else if (d.op === 'clear') clear();
     else if (d.op === 'fill') fill(d.x, d.y, d.c);
     else if (d.op) stroke(g, d.op, ...d.a, d.c, d.w);
@@ -1357,14 +1452,29 @@ function openSolitaire() {
     if (!history.length) return;
     clearTimeout(auto); st = JSON.parse(history.pop()); moves++; note.hidden = true; render(); W.push();
   }
-  // the table is shared: every move sends the whole layout
+  // In a room the opener's computer holds the real table: other players' moves are sent there,
+  // checked, and the whole table comes back to everyone.
+  const ask = (d, fn) => { if (isLead(W)) fn(); else sendInput(W, d); };
+  const PILES = ['stock', 'waste', 'f0', 'f1', 'f2', 'f3', 't0', 't1', 't2', 't3', 't4', 't5', 't6'];
+  const setDraw = n => ask({ drawN: n }, () => { drawN = n; store.set('solitaire-draw', n); newGame(); });
+  const restart = () => ask({ new: 1 }, newGame);
+  W.onInput = d => {
+    if (d.new) restart(); else if (d.undo) undo(); else if (d.draw) draw(); else if (d.drawN === 1 || d.drawN === 3) setDraw(d.drawN);
+    else if (d.smart && PILES.includes(d.smart[0])) {
+      const [k, i] = d.smart, src = pile(k);
+      if (src[i] && src[i].up && (k[0] === 't' || i === src.length - 1)) smartMove(k, i);
+    } else if (d.move && PILES.includes(d.move[0]) && PILES.includes(d.move[2])) {
+      const [from, n, to] = d.move, cards = pile(from).slice(-n);
+      if (n > 0 && cards.length === n && cards[0].up && canDrop(cards, to)) move(from, n, to);
+    }
+  };
   shareState(W, () => ({ st, moves, drawN, el: t0 ? Date.now() - t0 : 0 }), d => {
     if (drag) { drag.cards.forEach(c => els[c.id].classList.remove('drag')); drag = null; }
     clearTimeout(auto); st = d.st; moves = d.moves; drawN = d.drawN;
     const won = st.found.every(f => f.length === 13);
     clearInterval(timer); timer = null; t0 = d.el ? Date.now() - d.el : 0;
     if (t0 && !won) timer = setInterval(clock, 1000);
-    if (won) { note.innerHTML = `<b>You won!</b><span>${moves} moves in ${mmss(Math.floor(d.el / 1000))}</span><button class="okbtn">Play again</button>`; note.querySelector('button').onclick = newGame; }
+    if (won) { note.innerHTML = `<b>You won!</b><span>${moves} moves in ${mmss(Math.floor(d.el / 1000))}</span><button class="okbtn">Play again</button>`; note.querySelector('button').onclick = restart; }
     note.hidden = !won; render();
   });
 
@@ -1398,7 +1508,7 @@ function openSolitaire() {
       const wins = store.get('solitaire-wins', 0) + 1;
       store.set('solitaire-best', best); store.set('solitaire-wins', wins);
       note.innerHTML = `<b>You won!</b><span>${moves} moves in ${mmss(secs)}</span><span>Best time ${mmss(best)} · ${wins} wins</span><button class="okbtn">Play again</button>`;
-      note.querySelector('button').onclick = newGame; note.hidden = false;
+      note.querySelector('button').onclick = restart; note.hidden = false;
       return;
     }
     // once everything is face up and dealt, finish the game for the player
@@ -1454,10 +1564,12 @@ function openSolitaire() {
   let drag = null;
   board.addEventListener('pointerdown', e => {
     if (drag || e.button > 0) return;
-    const ce = e.target.closest('.sol-card'), se = e.target.closest('.sol-slot');
-    if (!ce) { if (se && se.dataset.k === 'stock') draw(); return; }
+    const sr = slots.stock.getBoundingClientRect(); // a quick second click can land on the card still sliding off the deck
+    if (e.clientX >= sr.left && e.clientX <= sr.right && e.clientY >= sr.top && e.clientY <= sr.bottom) return ask({ draw: 1 }, draw);
+    const ce = e.target.closest('.sol-card');
+    if (!ce) return;
     const k = ce.dataset.k, i = +ce.dataset.i, src = pile(k);
-    if (k === 'stock') return draw();
+    if (k === 'stock') return ask({ draw: 1 }, draw);
     if (!src[i] || !src[i].up || (k[0] !== 't' && i !== src.length - 1)) return; // only the top card leaves the waste or a foundation
     const cards = src.slice(i), r = board.getBoundingClientRect();
     drag = { k, i, cards, x: e.clientX, y: e.clientY, moved: false, starts: cards.map(c => [parseFloat(els[c.id].style.left), parseFloat(els[c.id].style.top)]), r };
@@ -1474,27 +1586,29 @@ function openSolitaire() {
     if (!drag) return;
     const d = drag; drag = null;
     d.cards.forEach(c => els[c.id].classList.remove('drag'));
-    if (!d.moved) { if (!cancel) smartMove(d.k, d.i); return; }
+    if (!d.moved) { if (!cancel) ask({ smart: [d.k, d.i] }, () => smartMove(d.k, d.i)); return; }
     // drop on whichever pile the middle of the lead card is over
     const cx = d.starts[0][0] + e.clientX - d.x + L.cw / 2, cy = d.starts[0][1] + e.clientY - d.y + L.ch / 2;
     const col = Math.floor((cx - L.colX(0) + L.gap / 2) / (L.cw + L.gap));
     const to = col < 0 || col > 6 ? null : cy < L.tabY - L.gap / 2 ? (col >= 3 ? 'f' + (col - 3) : null) : 't' + col;
-    if (!cancel && to && to !== d.k && canDrop(d.cards, to)) move(d.k, d.cards.length, to); else render();
+    const ok = !cancel && to && to !== d.k && canDrop(d.cards, to);
+    if (ok) ask({ move: [d.k, d.cards.length, to] }, () => move(d.k, d.cards.length, to));
+    if (!ok || !isLead(W)) render(); // snap back; another player's move shows once it comes back
   };
   board.addEventListener('pointerup', e => endDrag(e, false));
   board.addEventListener('pointercancel', e => endDrag(e, true));
   board.addEventListener('contextmenu', e => e.preventDefault());
   const onKey = e => {
     if (!W.el.classList.contains('active')) return;
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); }
-    else if (e.key === 'F2') { e.preventDefault(); newGame(); }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); ask({ undo: 1 }, undo); }
+    else if (e.key === 'F2') { e.preventDefault(); restart(); }
   };
   document.addEventListener('keydown', onKey);
 
   menuBar(W, q('.menu'), {
-    Game: [['New game   F2', newGame], ['Undo   Ctrl+Z', undo],
-      ['Draw one', () => { drawN = 1; store.set('solitaire-draw', 1); newGame(); }, () => drawN === 1],
-      ['Draw three', () => { drawN = 3; store.set('solitaire-draw', 3); newGame(); }, () => drawN === 3],
+    Game: [['New game   F2', restart], ['Undo   Ctrl+Z', () => ask({ undo: 1 }, undo)],
+      ['Draw one', () => setDraw(1), () => drawN === 1],
+      ['Draw three', () => setDraw(3), () => drawN === 3],
       ['Close', () => closeWin(W)]],
   });
   const prev = W.onClose;
@@ -1883,7 +1997,7 @@ function receive(m, from) {
     else if (m.t === 'focus') focusWin(W);
     else if (m.t === 'min') { W.el.classList.add('min'); focusTop(); }
     else if (m.t === 'max') { if (m.on !== W.el.classList.contains('max')) toggleMax(W); }
-    else if (m.t === 'mv') setRect(W, [m.x, m.y, W.el.offsetWidth, W.el.offsetHeight]);
+    else if (m.t === 'rect') setRect(W, m.r);
     else if (m.t === 'app' && W.setState) W.setState(m.d);
   });
 }

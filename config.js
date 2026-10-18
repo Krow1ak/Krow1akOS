@@ -229,7 +229,7 @@ const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
 const DESKTOP_ITEMS = [computer([DISK]), BROWSER_APP, ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
-const OPEN_ON_START = ABOUT;
+const OPEN_ON_START = null;   // e.g. ABOUT to open About me.txt
 
 
 /* ---- helpers (no need to edit below) ---- */

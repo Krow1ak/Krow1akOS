@@ -1882,6 +1882,19 @@ off.onclick = () => {
 };
 
 /* ---------- clock + calendar ---------- */
+// In a multiplayer room everyone sees the clock of whoever was in the room first (their time zone too),
+// so the taskbar clock and calendar match on every screen.
+let roomClock = null; // { offset: ms to add to my clock, tz, name }
+function clockNow() {
+  if (!roomClock) return new Date();
+  const now = new Date(Date.now() + roomClock.offset);
+  if (!roomClock.tz) return now;
+  try { // their wall-clock time, as a normal local Date so the calendar code works unchanged
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: roomClock.tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric' })
+      .formatToParts(now).map(x => [x.type, x.value]));
+    return new Date(+p.year, p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second, now.getMilliseconds());
+  } catch { return now; }
+}
 const cal = document.getElementById('cal'), tray = document.getElementById('tray');
 let SPECIAL = [];
 const calSt = { y: 0, m: 0, sel: null };
@@ -1902,7 +1915,7 @@ const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() ==
 fetchText(DATES_FILE).then(t => { SPECIAL = parseDates(t); if (!cal.hidden) renderCal(); }).catch(() => {});
 
 function renderCal() {
-  const now = new Date(), { y, m } = calSt;
+  const now = clockNow(), { y, m } = calSt;
   document.getElementById('cal-long').textContent = now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   document.getElementById('cal-month').textContent = new Date(y, m, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const grid = document.getElementById('cal-grid'); grid.innerHTML = '';
@@ -1944,10 +1957,10 @@ function renderCal() {
 }
 document.getElementById('cal-prev').onclick = () => { calSt.m--; if (calSt.m < 0) { calSt.m = 11; calSt.y--; } renderCal(); };
 document.getElementById('cal-next').onclick = () => { calSt.m++; if (calSt.m > 11) { calSt.m = 0; calSt.y++; } renderCal(); };
-document.getElementById('cal-long').onclick = () => { const n = new Date(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); };
+document.getElementById('cal-long').onclick = () => { const n = clockNow(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); };
 tray.onclick = e => {
   e.stopPropagation(); closeStart(); closeVol();
-  if (cal.hidden) { const n = new Date(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); drawHands(); }
+  if (cal.hidden) { const n = clockNow(); calSt.y = n.getFullYear(); calSt.m = n.getMonth(); calSt.sel = null; renderCal(); drawHands(); }
   cal.hidden = !cal.hidden; tray.classList.toggle('on', !cal.hidden);
 };
 document.addEventListener('pointerdown', e => { if (!cal.hidden && !cal.contains(e.target) && !tray.contains(e.target)) { cal.hidden = true; tray.classList.remove('on'); } });
@@ -1958,12 +1971,12 @@ face.innerHTML = '<circle cx="50" cy="50" r="47" class="rim"/><circle cx="50" cy
   + Array.from({ length: 12 }, (_, k) => `<line x1="50" y1="${k % 3 ? 10 : 9}" x2="50" y2="${k % 3 ? 14 : 17}" class="tick${k % 3 ? '' : ' big'}" transform="rotate(${k * 30} 50 50)"/>`).join('')
   + '<line id="h-h" x1="50" y1="52" x2="50" y2="29" class="hh"/><line id="h-m" x1="50" y1="54" x2="50" y2="17" class="hm"/><line id="h-s" x1="50" y1="58" x2="50" y2="14" class="hs"/><circle cx="50" cy="50" r="2.6" class="pin"/>';
 function drawHands() {
-  const d = new Date(), s = d.getSeconds(), mi = d.getMinutes() + s / 60, h = d.getHours() % 12 + mi / 60;
+  const d = clockNow(), s = d.getSeconds(), mi = d.getMinutes() + s / 60, h = d.getHours() % 12 + mi / 60;
   [['h-h', h * 30], ['h-m', mi * 6], ['h-s', s * 6]].forEach(([id, a]) => document.getElementById(id).setAttribute('transform', `rotate(${a} 50 50)`));
   document.getElementById('cal-time').textContent = d.toLocaleTimeString();
 }
 function tick() {
-  const d = new Date();
+  const d = clockNow();
   document.getElementById('clock-t').textContent = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   document.getElementById('clock-d').textContent = d.toLocaleDateString();
   if (!cal.hidden) drawHands();
@@ -2042,7 +2055,14 @@ function bubble(p, text) {
   b.textContent = text; b.hidden = false;
   clearTimeout(p.bubbleT); p.bubbleT = setTimeout(() => { b.hidden = true; }, 4500);
 }
-const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since }, to);
+const myTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } })();
+const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since, now: Date.now(), tz: myTz }, to);
+function pickRoomClock() { // the clock of whoever has been in the room longest
+  const first = [...mp.peers.values()].filter(p => p.since < since).sort((a, b) => a.since - b.since)[0];
+  roomClock = first ? { offset: first.offset || 0, tz: first.tz || '', name: first.name } : null;
+  tray.title = roomClock ? `Room time: ${roomClock.name}'s clock` : '';
+  tick();
+}
 
 async function joinRoom(code) {
   if (room) await leaveRoom();
@@ -2060,14 +2080,14 @@ async function joinRoom(code) {
   room.onPeerJoin = peerId => hello(peerId);
   room.onPeerLeave = peerId => {
     const p = mp.peers.get(peerId); if (!p) return;
-    p.cur.remove(); mp.peers.delete(peerId); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
+    p.cur.remove(); mp.peers.delete(peerId); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
   };
   history.replaceState(null, '', '#room=' + roomCode);
   refreshMp();
 }
 async function leaveRoom() {
   const r = room; room = null; mp.send = null; roomCode = '';
-  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear(); chatLog.length = 0; unread = 0;
+  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear(); chatLog.length = 0; unread = 0; pickRoomClock();
   history.replaceState(null, '', location.pathname + location.search);
   refreshMp();
   if (r) await r.leave().catch(() => {});
@@ -2077,14 +2097,15 @@ function receive(m, from) {
   const p = mp.peers.get(from), W = m.sid ? bySid(m.sid) : null;
   if (m.t === 'hello') {
     const known = !!p, peer = p || { cur: el('<div class="mp-cur" hidden><svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4.2 3 6.7 3-1.4-3-6.6H15z"/></svg><span></span></div>') };
-    Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since });
+    Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since, tz: typeof m.tz === 'string' ? m.tz : '' });
+    if (typeof m.now === 'number') peer.offset = m.now - Date.now(); // how far their clock is from mine
     peer.cur.style.setProperty('--c', m.color); peer.cur.querySelector('span').textContent = m.name;
     if (!known) {
       document.body.append(peer.cur); mp.peers.set(from, peer);
       if (m.since > since) { toast(`${m.name} joined`); addChat({ sys: true, text: `${m.name} joined` }); } // not for people who were already here
     }
     if (!known && m.since > since) mpSend({ t: 'snap', since, chat: chatLog.slice(-50), wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
-    refreshMp(); return;
+    pickRoomClock(); refreshMp(); return;
   }
   if (!p) return;
   if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d); return; }

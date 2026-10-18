@@ -60,6 +60,14 @@ const ASSETS = {
   },
 };
 
+/* ---------- LOADING SCREEN ----------
+   Shown while the site loads. text: {name} becomes SITE_NAME. minTime: shortest time it shows (ms). */
+const LOADING_SCREEN = {
+  enabled: true,
+  text:    'Starting {name}',
+  minTime: 1200,
+};
+
 /* ---------- WINDOW LOOK ----------
    color / inactiveColor: frame color of the front window / windows behind it.
      Any CSS color: '#ff88cc', 'rgb(255,136,204)', or 'rgba(255,136,204,.6)'
@@ -74,6 +82,7 @@ const WINDOW_LOOK = {
   inactiveColor: '#492583',
   texture:       '',
   textureSize:   'auto',
+  menuColor:     '',   // start menu, calendar and volume popups; '' = same as color (a bit darker)
 };
 
 /* ---------- SOUND ----------

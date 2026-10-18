@@ -43,6 +43,23 @@ function loadText(n) {
   return fetchText(n.file).catch(() => `Couldn't open ${n.file}\n\nCheck that the file exists in the content folder.\nIf you opened index.html straight from your computer, run\nstart-local-server.bat (or upload the site) so the browser\nis allowed to read the txt files.`);
 }
 
+/* ---------- loading screen ---------- */
+// stays up until the wallpaper and icons have loaded (at least LOADING_SCREEN.minTime, at most 8 seconds)
+(function boot() {
+  const b = document.getElementById('boot');
+  if (!LOADING_SCREEN.enabled) { b.remove(); return; }
+  b.querySelector('.boot-logo').style.backgroundImage = `url("${ASSETS.startOrb}")`;
+  b.querySelector('.boot-text').textContent = (LOADING_SCREEN.text || 'Starting {name}').replace('{name}', SITE_NAME);
+  const t0 = performance.now();
+  let done = false;
+  const hide = () => {
+    if (done) return; done = true;
+    setTimeout(() => { b.classList.add('out'); setTimeout(() => b.remove(), 600); }, Math.max(0, (LOADING_SCREEN.minTime ?? 1200) - (performance.now() - t0)));
+  };
+  if (document.readyState === 'complete') hide(); else addEventListener('load', hide);
+  setTimeout(hide, 8000);
+})();
+
 /* ---------- apply assets ---------- */
 document.title = SITE_NAME;
 document.body.style.backgroundImage = `url("${ASSETS.wallpaper}")`;
@@ -50,6 +67,7 @@ document.getElementById('taskbar').style.backgroundImage = `url("${ASSETS.taskba
 const rootStyle = document.documentElement.style;
 if (WINDOW_LOOK.color) rootStyle.setProperty('--glass', WINDOW_LOOK.color);
 if (WINDOW_LOOK.inactiveColor) rootStyle.setProperty('--glass-dim', WINDOW_LOOK.inactiveColor);
+if (WINDOW_LOOK.menuColor) rootStyle.setProperty('--menu', WINDOW_LOOK.menuColor);
 if (WINDOW_LOOK.texture) rootStyle.setProperty('--glass-texture', `url("${WINDOW_LOOK.texture}")`);
 if (WINDOW_LOOK.textureSize) rootStyle.setProperty('--glass-texture-size', WINDOW_LOOK.textureSize);
 document.querySelector('#orb').innerHTML = img(ASSETS.startOrb, '', 'Start');
@@ -63,7 +81,7 @@ const el = html => { const t = document.createElement('template'); t.innerHTML =
 
 function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
   const dw = innerWidth, dh = innerHeight - 40;
-  w = Math.min(w, dw - 20); h = Math.min(h, dh - 20);
+  w = Math.min(w + 16, dw - 20); h = Math.min(h + 8, dh - 20); // sizes are asked for without the frame
   const x = Math.max(10, Math.min(dw - w - 10, (dw - w) / 2 - 120 + cascade * 28));
   const y = Math.max(8, Math.min(dh - h - 8, (dh - h) / 2 - 70 + cascade * 28));
   if (!cls) cascade = (cascade + 1) % 6;
@@ -1020,7 +1038,7 @@ function embedUrl(url) {
   let m = url.match(/^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(playlist|album|track|artist|episode|show)\/([\w]+)/i);
   if (m) return `https://open.spotify.com/embed/${m[1]}/${m[2]}`;
   m = url.match(/^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/watch\?(?:.*&)?v=|youtu\.be\/)([\w-]{11})/i);
-  if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  if (m) return `https://www.youtube.com/embed/${m[1]}?enablejsapi=1&origin=${encodeURIComponent(location.origin)}`; // the API lets a room share play/pause
   return url;
 }
 function openBrowser(start) {
@@ -1035,12 +1053,58 @@ function openBrowser(start) {
   const frame = q('.wb-frame'), note = q('.wb-note'), urlIn = q('.wb-url');
   const st = { hist: [], i: -1 };
   let pausedMusic = false;
-  W.onClose = () => { if (pausedMusic) setMusic(true); };
+  W.onClose = () => { if (pausedMusic) setMusic(true); removeEventListener('message', onYt); clearInterval(ytListen); };
+
+  // YouTube: in a room, play, pause and jumps in the video are shared. The embedded player can't be
+  // reached directly (it's another site), but it answers YouTube's own embed messages.
+  let yt = null, ytNext = null, ytListen = null;
+  const ytId = () => (frame.src.match(/^https:\/\/www\.youtube\.com\/embed\/([\w-]{11})/) || [])[1];
+  const ytSend = (func, args = []) => frame.contentWindow && frame.contentWindow.postMessage(JSON.stringify({ event: 'command', func, args, id: 1, channel: 'widget' }), '*');
+  const ytNow = () => yt.t + (yt.state === 1 ? (performance.now() - yt.at) / 1000 : 0);
+  const ytPush = () => { if (yt && yt.ready) W.push({ yt: { v: ytId(), p: yt.state !== 1, t: ytNow() } }); };
+  function applyYt(d) {
+    if (!yt || !yt.ready) { ytNext = d; return; }
+    if (d.v !== ytId()) return;
+    if (Math.abs(ytNow() - d.t) > 2) { ytSend('seekTo', [d.t, true]); yt.t = d.t; yt.at = performance.now(); }
+    if (d.p && yt.state === 1) ytSend('pauseVideo');
+    else if (!d.p && yt.state !== 1) ytSend('playVideo');
+  }
+  frame.addEventListener('load', () => {
+    clearInterval(ytListen); yt = null;
+    if (!ytId()) return;
+    yt = { ready: false, state: -1, t: 0, at: performance.now(), pending: ytNext }; ytNext = null;
+    let tries = 0; // keep saying hello until the player answers
+    ytListen = setInterval(() => {
+      if (!yt || yt.ready || ++tries > 40) return clearInterval(ytListen);
+      frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
+    }, 250);
+  });
+  function onYt(e) {
+    if (!yt || e.source !== frame.contentWindow || !/youtube/.test(e.origin)) return;
+    let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
+    if (!d || !d.event) return;
+    if (!yt.ready) {
+      yt.ready = true; clearInterval(ytListen); ytSend('addEventListener', ['onStateChange']);
+      if (yt.pending) { const p = yt.pending; yt.pending = null; applyYt(p); }
+    }
+    const info = d.info && typeof d.info === 'object' ? d.info : {};
+    if (typeof info.currentTime === 'number') { // a jump the player made (the viewer dragged the time bar)
+      const jumped = yt.state === 1 && Math.abs(info.currentTime - ytNow()) > 2;
+      yt.t = info.currentTime; yt.at = performance.now();
+      if (jumped) ytPush();
+    }
+    const state = d.event === 'onStateChange' ? d.info : info.playerState;
+    if (typeof state !== 'number' || state === yt.state) return;
+    yt.state = state;
+    if (state === 1 || state === 2) ytPush();
+  }
+  addEventListener('message', onYt);
+
   function show(entry) {
     urlIn.value = entry.url || '';
     if (entry.note) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = false; note.textContent = entry.note; }
     else {
-      note.hidden = true; frame.hidden = false; frame.src = embedUrl(entry.url);
+      note.hidden = true; frame.hidden = false; yt = null; clearInterval(ytListen); frame.src = embedUrl(entry.url);
       if (frame.src !== entry.url && !pausedMusic) { pausedMusic = true; setMusic(false); } // a player: don't play over it
     }
     W.setTitle(`${entry.title || entry.url} - Internet`);
@@ -1068,9 +1132,10 @@ function openBrowser(start) {
     marks.append(btn);
   });
   if (!marks.children.length) marks.remove();
-  shareState(W, () => ({ e: st.hist[st.i] }), d => {
+  shareState(W, () => ({ e: st.hist[st.i], yt: yt && yt.ready ? { v: ytId(), p: yt.state !== 1, t: ytNow() } : null }), d => {
     const cur = st.hist[st.i];
     if (d.e && !(cur && cur.url === d.e.url && cur.note === d.e.note)) go(d.e);
+    if (d.yt) applyYt(d.yt);
   });
   goUrl(start || BROWSER.home, start ? '' : 'Home');
   return W;
@@ -2045,7 +2110,7 @@ function openMpPanel() {
           + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div><div class="mp-status"></div></div>`
           + `<h4>Here now</h4><ul class="mp-people">${people}</ul><button class="okbtn mp-leave">Leave room</button>`
         : `<div class="mp-box"><button class="okbtn mp-new">Start a room</button><div class="dim">You get a link to send. Whoever opens it sees your desktop, mouse and windows live.</div></div>`
-          + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code" aria-label="Room code"><button class="okbtn">Join</button></div></form>`)
+          + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code or link" aria-label="Room code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="okbtn">Join</button></div></form>`)
       + `<div class="dim mp-fine">Connections go straight between browsers, nothing is saved anywhere. Strict school or work networks can block them.</div></div>`;
     const name = q('.mp-name'); name.value = me.name;
     name.onchange = () => { me.name = name.value.trim().slice(0, 24) || me.name; store.set('mp-name', me.name); hello(); W.render(); };
@@ -2056,8 +2121,16 @@ function openMpPanel() {
       q('.mp-copy').onclick = () => { navigator.clipboard.writeText(inviteLink()).then(() => toast('Link copied'), () => q('.mp-url').select()); };
       q('.mp-leave').onclick = () => leaveRoom();
     } else {
-      q('.mp-new').onclick = () => joinRoom(newCode());
-      q('.mp-join').onsubmit = e => { e.preventDefault(); const c = q('.mp-in').value.trim(); if (c) joinRoom(c.replace(/.*room=/, '')); };
+      q('.mp-new').onclick = () => { // a second room in the same page goes through a fresh load, like the link
+        if (mpLib) { location.hash = 'room=' + newCode(); location.reload(); } else joinRoom(newCode());
+      };
+      // joining by code does exactly what opening the invite link does: load the page fresh in that room
+      q('.mp-join').onsubmit = e => {
+        e.preventDefault();
+        const c = q('.mp-in').value.trim().replace(/.*room=/, '').toLowerCase().replace(/[^\w-]/g, '').slice(0, 32);
+        if (!c) return;
+        location.hash = 'room=' + c; location.reload();
+      };
     }
   };
   // connection check, so it's clear what's wrong when nobody shows up

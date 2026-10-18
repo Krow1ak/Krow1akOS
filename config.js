@@ -39,6 +39,12 @@ const ASSETS = {
     pinball:     'assets/icons/pinball.png',
     snake:       'assets/icons/snake.png',
     solitaire:   'assets/icons/solitaire.png',
+    tictactoe:   'assets/icons/tictactoe.png',
+    connect4:    'assets/icons/connect4.png',
+    checkers:    'assets/icons/checkers.png',
+    chess:       'assets/icons/chess.png',
+    g2048:       'assets/icons/g2048.png',
+    sudoku:      'assets/icons/sudoku.png',
     music:       'assets/icons/music.png',
     browser:     'assets/icons/browser.png',
     multiplayer: 'assets/icons/multiplayer.png',
@@ -164,6 +170,9 @@ const BROWSER = {
    pinball()                               Pinball
    snake()                                 Snake
    solitaire()                             Solitaire (Klondike; Game > Draw one / Draw three)
+   tictactoe(), connectFour(), checkers(), chess()   two-player games: vs the computer, two on one screen, or in a multiplayer room
+   game2048()                              2048
+   sudoku()                                the daily Sudoku (Game > New random puzzle for free play)
    browser()                               the web browser (home page and bookmarks are in BROWSER above)
    audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
@@ -214,7 +223,13 @@ const PAINT = paint();
 const PINBALL = pinball();
 const SNAKE = snake();
 const SOLITAIRE = solitaire();
-const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, SNAKE, SOLITAIRE, PAINT]);
+const TICTACTOE = tictactoe();
+const CONNECT4 = connectFour();
+const CHECKERS = checkers();
+const CHESS = chess();
+const G2048 = game2048();
+const SUDOKU = sudoku();
+const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT]);
 
 const BROWSER_APP = browser();
 
@@ -244,6 +259,12 @@ function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
 function snake(opts = {}) { return { name: 'Snake', type: 'snake', ...opts }; }
 function solitaire(opts = {}) { return { name: 'Solitaire', type: 'solitaire', ...opts }; }
+function tictactoe(opts = {}) { return { name: 'Tic-Tac-Toe', type: 'tictactoe', ...opts }; }
+function connectFour(opts = {}) { return { name: 'Connect Four', type: 'connect4', ...opts }; }
+function checkers(opts = {}) { return { name: 'Checkers', type: 'checkers', ...opts }; }
+function chess(opts = {}) { return { name: 'Chess', type: 'chess', ...opts }; }
+function game2048(opts = {}) { return { name: '2048', type: 'g2048', ...opts }; }
+function sudoku(opts = {}) { return { name: 'Sudoku', type: 'sudoku', ...opts }; }
 function browser(opts = {}) { return { name: 'Internet', type: 'browser', ...opts }; }
 function audio(name, src, opts = {}) { return { name, type: 'audio', src, ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }

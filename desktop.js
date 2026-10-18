@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -330,6 +330,12 @@ function openApp(n, folder) {
   if (n.type === 'pinball') return openPinball();
   if (n.type === 'snake') return openSnake();
   if (n.type === 'solitaire') return openSolitaire();
+  if (n.type === 'tictactoe') return openTicTacToe();
+  if (n.type === 'connect4') return openConnectFour();
+  if (n.type === 'checkers') return openCheckers();
+  if (n.type === 'chess') return openChess();
+  if (n.type === 'g2048') return open2048();
+  if (n.type === 'sudoku') return openSudoku();
   if (n.type === 'audio') return openPlayer(n, folder);
   if (n.type === 'browser') return openBrowser(n.url);
 }
@@ -1263,9 +1269,11 @@ let pbWin = null;
 function openPinball() {
   if (pbWin) { focusWin(pbWin); return pbWin; }
   const TW = 360, TH = 600, R = 8, G = 700;
-  const W = makeWin({ title: 'Pinball', icon: I.pinball, w: 400, h: 720 });
-  W.body.innerHTML = '<div class="pb"><div class="pb-wrap"><canvas class="pb-c" width="360" height="600" aria-label="Pinball table"></canvas></div>'
-    + '<div class="pb-help">Z or ← left flipper · / or → right flipper · hold Space to launch<br>Touch: tap left/right half for flippers, hold to launch</div></div>';
+  const W = makeWin({ title: '3D Pinball', icon: I.pinball, w: 620, h: 700 });
+  W.body.innerHTML = '<div class="pb"><div class="pb-main"><div class="pb-wrap"><canvas class="pb-c" width="360" height="600" aria-label="Pinball table"></canvas></div>'
+    + '<div class="pb-panel"><canvas class="pb-logo" width="200" height="150" aria-hidden="true"></canvas><div class="pb-ballrow">BALL <b class="pb-ball">1</b></div>'
+    + '<div class="pb-scorerow"><b class="pb-player">1</b><b class="pb-score">0</b></div><div class="pb-msg" role="status"></div><div class="pb-info"></div></div></div>'
+    + '<div class="pb-help">Z or ← left flipper · / or → right flipper · hold Space to launch · F3 pause<br>Touch: tap left/right half for flippers, hold to launch</div></div>';
   const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
   const path = pts => pts.slice(1).map((p, k) => [...pts[k], ...p]);
   const walls = [
@@ -1283,7 +1291,7 @@ function openPinball() {
     { x: 98, y: 532, len: 58, rest: 0.5, up: -0.45, a: 0.5, w: 0, on: false },
     { x: 232, y: 532, len: 58, rest: Math.PI - 0.5, up: Math.PI + 0.45, a: Math.PI - 0.5, w: 0, on: false },
   ];
-  let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0, sendTick = 0;
+  let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0, sendTick = 0, paused = false;
   const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true }; charge = 0; };
   function newGame() { score = 0; balls = 3; over = false; resetBall(); }
   newGame();
@@ -1342,37 +1350,111 @@ function openPinball() {
   }
   function launch() { if (ball.onPlunger && !over) { ball.onPlunger = false; ball.vy = -(850 + 550 * charge); charge = 0; } }
 
-  function draw() {
-    const bg = g.createLinearGradient(0, 0, 0, TH); bg.addColorStop(0, '#1d2440'); bg.addColorStop(1, '#0b0f1e');
-    g.fillStyle = bg; g.fillRect(0, 0, TW, TH);
-    g.lineCap = 'round'; g.strokeStyle = '#7fd3ff'; g.lineWidth = 4;
-    g.beginPath(); walls.forEach(([a, b, c, d]) => { g.moveTo(a, b); g.lineTo(c, d); }); if (!ball.inLane) { g.moveTo(gate[0], gate[1]); g.lineTo(gate[2], gate[3]); } g.stroke();
-    g.fillStyle = '#4a5677'; g.fillRect(322, 570 + charge * 14, 26, 30); // plunger
-    bumpers.forEach(b => {
-      g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2);
-      g.fillStyle = b.flash > 0 ? '#ffffff' : b.pts > 50 ? '#ff4fa3' : '#ffd166'; g.fill();
-      g.lineWidth = 3; g.strokeStyle = '#ffffff55'; g.stroke();
-    });
-    g.strokeStyle = '#ffd166'; g.lineWidth = 14;
-    flippers.forEach(f => { g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(f.x + Math.cos(f.a) * f.len, f.y + Math.sin(f.a) * f.len); g.stroke(); });
-    const bb = g.createRadialGradient(ball.x - 3, ball.y - 3, 1, ball.x, ball.y, R);
-    bb.addColorStop(0, '#ffffff'); bb.addColorStop(1, '#8c98ad');
-    g.fillStyle = bb; g.beginPath(); g.arc(ball.x, ball.y, R, 0, Math.PI * 2); g.fill();
-    g.fillStyle = '#e6ecff'; g.font = 'bold 14px Segoe UI, sans-serif'; g.textAlign = 'left';
-    g.fillText(`SCORE ${score}`, 14, 556); g.fillText(`BALLS ${balls}`, 14, 576); g.fillText(`BEST ${best}`, 14, 596);
-    let msg = '';
-    if (over) msg = 'GAME OVER · press Space or tap';
-    else if (!W.el.classList.contains('active')) msg = 'Paused · click to play';
-    else if (ball.onPlunger) msg = charging ? 'Release to launch!' : 'Hold Space to launch';
-    if (msg) {
-      g.textAlign = 'center'; g.font = 'bold 15px Segoe UI, sans-serif';
-      g.fillStyle = '#00000099'; g.fillRect(40, 352, 240, 30);
-      g.fillStyle = '#ffffff'; g.fillText(msg, 160, 372);
+  // the look: a deep-space table with chrome rails, mushroom bumpers and a ring of lights (drawn once,
+  // then the moving parts on top), tilted back with CSS for the 3D feel, and the black score panel
+  const art = document.createElement('canvas'); art.width = TW; art.height = TH;
+  (function paintArt() {
+    const a = art.getContext('2d'), rnd = seededRandom('pinball-art');
+    const bg = a.createRadialGradient(165, 300, 40, 165, 300, 420);
+    bg.addColorStop(0, '#22327a'); bg.addColorStop(0.55, '#121a4a'); bg.addColorStop(1, '#070a1f');
+    a.fillStyle = bg; a.fillRect(0, 0, TW, TH);
+    for (const [x, y, r, c] of [[80, 120, 90, 'rgba(160,60,200,.22)'], [260, 230, 110, 'rgba(40,120,220,.2)'], [120, 470, 80, 'rgba(200,40,90,.14)']]) {
+      const n = a.createRadialGradient(x, y, 0, x, y, r); n.addColorStop(0, c); n.addColorStop(1, 'transparent');
+      a.fillStyle = n; a.fillRect(0, 0, TW, TH);
     }
+    a.strokeStyle = 'rgba(120,150,255,.13)'; a.lineWidth = 1; // the cracked-glass lines
+    for (let k = 0; k < 70; k++) {
+      let x = rnd() * TW, y = rnd() * TH; a.beginPath(); a.moveTo(x, y);
+      for (let j = 0; j < 4; j++) { x += (rnd() - 0.5) * 60; y += (rnd() - 0.5) * 60; a.lineTo(x, y); }
+      a.stroke();
+    }
+    for (let k = 0; k < 140; k++) { a.fillStyle = `rgba(255,255,255,${0.25 + rnd() * 0.65})`; const s = rnd() < 0.1 ? 2 : 1; a.fillRect(rnd() * TW, rnd() * TH, s, s); }
+    const planet = a.createRadialGradient(285, 92, 2, 290, 100, 26); planet.addColorStop(0, '#7fd36a'); planet.addColorStop(1, '#1e5a2a');
+    a.fillStyle = planet; a.beginPath(); a.arc(290, 100, 24, 0, Math.PI * 2); a.fill();
+    a.strokeStyle = 'rgba(200,220,255,.5)'; a.lineWidth = 2; a.beginPath(); a.ellipse(290, 100, 38, 9, -0.3, 0, Math.PI * 2); a.stroke();
+    a.save(); a.translate(240, 420); a.rotate(-0.5); // a rocket decal
+    a.fillStyle = 'rgba(200,60,80,.55)'; a.beginPath(); a.moveTo(0, -46); a.quadraticCurveTo(14, -20, 10, 30); a.lineTo(-10, 30); a.quadraticCurveTo(-14, -20, 0, -46); a.fill();
+    a.fillStyle = 'rgba(120,200,255,.6)'; a.beginPath(); a.arc(0, -14, 5, 0, Math.PI * 2); a.fill();
+    a.fillStyle = 'rgba(255,170,60,.5)'; a.beginPath(); a.moveTo(-8, 30); a.lineTo(0, 52); a.lineTo(8, 30); a.fill();
+    a.restore();
+    for (const [x, y] of [[48, 380], [282, 380], [30, 250], [300, 250]]) { // lane arrows
+      a.fillStyle = 'rgba(255,210,60,.75)'; a.beginPath(); a.moveTo(x, y - 8); a.lineTo(x + 7, y + 5); a.lineTo(x - 7, y + 5); a.fill();
+    }
+    const rail = (w, c) => { a.lineCap = 'round'; a.lineJoin = 'round'; a.strokeStyle = c; a.lineWidth = w; a.beginPath(); walls.forEach(([x1, y1, x2, y2]) => { a.moveTo(x1, y1); a.lineTo(x2, y2); }); a.stroke(); };
+    rail(9, '#1b1f2a'); rail(6, '#6c7686'); rail(2, '#e3e9f2');
+    a.fillStyle = '#2a1414'; a.fillRect(322, 560, 26, 40); // plunger slot
+  })();
+  const LIGHTS = 18;
+  function draw() {
+    const now = performance.now();
+    g.drawImage(art, 0, 0);
+    // ring of lights round a glowing hole in the middle (just for looks)
+    const cx = 165, cy = 395, glow = g.createRadialGradient(cx, cy, 2, cx, cy, 30);
+    glow.addColorStop(0, '#bff3ff'); glow.addColorStop(0.4, '#3cb7ff'); glow.addColorStop(1, 'rgba(20,60,160,0)');
+    g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, 30, 0, Math.PI * 2); g.fill();
+    for (let k = 0; k < LIGHTS; k++) {
+      const ang = k / LIGHTS * Math.PI * 2, on = Math.floor(now / 90) % LIGHTS === k || (score && (k + Math.floor(now / 400)) % 6 === 0);
+      g.fillStyle = on ? '#ffd23f' : '#6b3a1c'; g.beginPath(); g.arc(cx + Math.cos(ang) * 40, cy + Math.sin(ang) * 40, 3.5, 0, Math.PI * 2); g.fill();
+    }
+    if (!ball.inLane) { g.lineCap = 'round'; g.strokeStyle = '#e3e9f2'; g.lineWidth = 3; g.beginPath(); g.moveTo(gate[0], gate[1]); g.lineTo(gate[2], gate[3]); g.stroke(); }
+    const py = 566 + charge * 14; // plunger: red knob on a spring
+    g.strokeStyle = '#b8c0cc'; g.lineWidth = 2; g.beginPath();
+    for (let k = 0; k <= 8; k++) g.lineTo(k % 2 ? 330 : 340, py + 8 + k * (26 - charge * 14) / 8);
+    g.stroke();
+    g.fillStyle = '#d4282e'; g.fillRect(324, py, 22, 8);
+    bumpers.forEach(bp => { // mushroom bumpers: red skirt, white cap, blue middle; small ones are yellow targets
+      const lit = bp.flash > 0;
+      if (bp.pts > 50) {
+        g.fillStyle = lit ? '#fff6a8' : '#c41e2a'; g.beginPath(); g.arc(bp.x, bp.y, bp.r, 0, Math.PI * 2); g.fill();
+        g.fillStyle = '#f4f4f4'; g.beginPath(); g.arc(bp.x, bp.y - 2, bp.r * 0.68, 0, Math.PI * 2); g.fill();
+        g.fillStyle = lit ? '#ffffff' : '#2a6fe0'; g.beginPath(); g.arc(bp.x, bp.y - 2, bp.r * 0.32, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = 'rgba(0,0,0,.45)'; g.lineWidth = 1.5; g.beginPath(); g.arc(bp.x, bp.y, bp.r, 0, Math.PI * 2); g.stroke();
+      } else {
+        g.fillStyle = lit ? '#fff' : '#f2b705'; g.beginPath();
+        for (let k = 0; k < 10; k++) { const rr = k % 2 ? bp.r * 0.5 : bp.r + 2, an = k / 10 * Math.PI * 2 - Math.PI / 2; g.lineTo(bp.x + Math.cos(an) * rr, bp.y + Math.sin(an) * rr); }
+        g.fill();
+      }
+    });
+    flippers.forEach(f => { // white flippers with a red stripe
+      const ex = f.x + Math.cos(f.a) * f.len, ey = f.y + Math.sin(f.a) * f.len;
+      g.lineCap = 'round';
+      g.strokeStyle = '#1b1f2a'; g.lineWidth = 16; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(ex, ey); g.stroke();
+      g.strokeStyle = '#f2f4f8'; g.lineWidth = 12; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(ex, ey); g.stroke();
+      g.strokeStyle = '#d4282e'; g.lineWidth = 3; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(ex, ey); g.stroke();
+    });
+    const bb = g.createRadialGradient(ball.x - 3, ball.y - 3, 1, ball.x, ball.y, R);
+    bb.addColorStop(0, '#ffffff'); bb.addColorStop(0.5, '#b9c2cf'); bb.addColorStop(1, '#4b5464');
+    g.fillStyle = bb; g.beginPath(); g.arc(ball.x, ball.y, R, 0, Math.PI * 2); g.fill();
+    // score panel
+    panel.ball.textContent = over ? '-' : Math.min(3, 4 - balls);
+    panel.score.textContent = score;
+    let msg = '', info = `High score ${best}`;
+    if (over) msg = 'Game Over\nSpace to play again';
+    else if (paused) msg = 'Game Paused\nF3 to Resume';
+    else if (!W.el.classList.contains('active')) msg = 'Game Paused\nClick to Resume';
+    else if (ball.onPlunger) msg = charging ? 'Launch!' : 'Hold Space\nto launch';
+    else msg = 'Mission in\nprogress';
+    if (panel.msg.textContent !== msg) panel.msg.textContent = msg;
+    if (panel.info.textContent !== info) panel.info.textContent = info;
   }
+  const panel = { ball: W.body.querySelector('.pb-ball'), score: W.body.querySelector('.pb-score'), msg: W.body.querySelector('.pb-msg'), info: W.body.querySelector('.pb-info') };
+  (function paintLogo() { // the title card: space backdrop, rings and the name in big purple letters
+    const lc = W.body.querySelector('.pb-logo'), a = lc.getContext('2d'), rnd = seededRandom('pinball-logo');
+    const sky = a.createLinearGradient(0, 0, 0, 150); sky.addColorStop(0, '#05051a'); sky.addColorStop(1, '#16123c');
+    a.fillStyle = sky; a.fillRect(0, 0, 200, 150);
+    for (let k = 0; k < 60; k++) { a.fillStyle = `rgba(255,255,255,${0.3 + rnd() * 0.7})`; a.fillRect(rnd() * 200, rnd() * 150, 1, 1); }
+    const pl = a.createRadialGradient(160, 118, 2, 165, 122, 30); pl.addColorStop(0, '#ffb35c'); pl.addColorStop(1, '#7a2a10');
+    a.fillStyle = pl; a.beginPath(); a.arc(168, 124, 26, 0, Math.PI * 2); a.fill();
+    a.textAlign = 'center';
+    a.font = 'italic bold 16px "Comic Sans MS", "Trebuchet MS", sans-serif'; a.fillStyle = '#c9b6ff'; a.fillText('3D Pinball', 100, 30);
+    const tg = a.createLinearGradient(0, 40, 0, 96); tg.addColorStop(0, '#e9dcff'); tg.addColorStop(0.5, '#a477f0'); tg.addColorStop(1, '#5a2aa8');
+    a.font = 'italic 900 34px "Comic Sans MS", "Trebuchet MS", sans-serif'; a.lineWidth = 4; a.strokeStyle = '#1a0b3a';
+    a.strokeText('Space', 92, 66); a.fillStyle = tg; a.fillText('Space', 92, 66);
+    a.strokeText('Cadet', 108, 100); a.fillText('Cadet', 108, 100);
+  })();
   function frame(t) {
     const dt = Math.min(0.033, (t - last) / 1000 || 0); last = t;
-    if (W.el.classList.contains('active') && !over && isLead(W)) {
+    if (W.el.classList.contains('active') && !over && !paused && isLead(W)) {
       if (charging && ball.onPlunger) charge = Math.min(1, charge + dt * 1.2);
       for (let k = 0; k < 8; k++) step(dt / 8);
       bumpers.forEach(b => { b.flash = Math.max(0, b.flash - dt); });
@@ -1391,8 +1473,10 @@ function openPinball() {
     else if (charging) { charging = false; launch(); }
     W.push();
   };
-  W.onInput = d => { if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); };
-  shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging }), d => {
+  const togglePause = () => { if (!isLead(W)) return sendInput(W, { pause: 1 }); if (!over) paused = !paused; W.push(); };
+  W.onInput = d => { if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); if (d.pause) togglePause(); };
+  shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging, paused }), d => {
+    paused = !!d.paused;
     [ball.x, ball.y, ball.onPlunger, ball.inLane] = d.b;
     d.f.forEach((a, k) => { flippers[k].a = a; }); d.fl.forEach((v, k) => { bumpers[k].flash = v; });
     ({ score, balls, over, charge, charging } = d);
@@ -1402,8 +1486,10 @@ function openPinball() {
     : ['/', '?', 'ArrowRight'].includes(e.key) || e.code === 'ShiftRight' ? 1 : e.key === ' ' || e.key === 'ArrowDown' ? 'launch' : null;
   const onDown = e => {
     if (!W.el.classList.contains('active')) return;
+    if (e.key === 'F3') { e.preventDefault(); return togglePause(); }
     const k = keyOf(e); if (k === null) return;
     e.preventDefault();
+    if (paused) { if (k === 'launch' && !e.repeat) togglePause(); return; }
     if (k === 'launch') { if (!e.repeat) plunge(true); }
     else if (!e.repeat) flip(k, true);
   };
@@ -1759,6 +1845,706 @@ function openSolitaire() {
   return W;
 }
 
+/* ---------- two-player board games ---------- */
+// Tic-tac-toe, Connect Four, Checkers and Chess share this part: who plays which side, whose turn it
+// is, the computer player and multiplayer. Modes: 'cpu' (you against the computer), 'local' (two people
+// on one screen) and, in a room, 'online': each side belongs to whoever moves it first, everyone else
+// watches. Like the other shared games, the opener's computer holds the real game.
+const personName = id => id === mp.self ? me.name : ([...mp.peers.values()].find(p => p.id === id) || {}).name || 'someone';
+const BG_SINGLES = {};
+function boardGame(G) {
+  // G: { key, title, icon, w, h, sides: [name, name], init(), legal(g, mv, side), apply(g, mv, side) -> true when the turn passes,
+  //      result(g, turn) -> null | { winner: side | -1, text?, line? }, ai(g, side) -> move, mount(board, api), render(st, view) }
+  if (BG_SINGLES[G.key]) { focusWin(BG_SINGLES[G.key]); return BG_SINGLES[G.key]; }
+  const W = makeWin({ title: G.title, icon: G.icon, w: G.w, h: G.h });
+  W.body.innerHTML = `<div class="menu"></div><div class="bg ${G.key}"><div class="bg-status"></div><div class="bg-board"></div></div>`;
+  const q = sel => W.body.querySelector(sel), statusEl = q('.bg-status'), board = q('.bg-board');
+  let st, aiTimer = null;
+  const fresh = mode => ({ g: G.init(), turn: 0, mode, seats: [null, null], over: null, n: 0, last: null });
+  // the side whose view I get (chess and checkers turn the board around for the second player)
+  const mySide = () => st.mode === 'online' ? Math.max(0, st.seats.indexOf(mp.self)) : st.mode === 'cpu' ? 0 : st.turn;
+  function canAct(side, who) {
+    if (st.over) return false;
+    if (st.mode === 'local') return true;
+    if (st.mode === 'cpu') return side === 0 || who === 'cpu';
+    if (st.seats[side]) return st.seats[side] === who;
+    return st.seats[1 - side] !== who || !live() || mp.peers.size === 0; // alone in the room you may play both sides
+  }
+  function statusText() {
+    const name = s => st.mode === 'online' ? (st.seats[s] ? `${G.sides[s]} (${personName(st.seats[s])})` : G.sides[s]) : st.mode === 'cpu' ? (s ? `${G.sides[s]} (computer)` : `${G.sides[s]} (you)`) : G.sides[s];
+    if (st.over) return st.over.winner < 0 ? (st.over.text || "It's a draw") : `${name(st.over.winner)} wins${st.over.text ? ' · ' + st.over.text : ''}!`;
+    const mine = canAct(st.turn, mp.self);
+    let t = `${name(st.turn)} to move${G.check && G.check(st.g, st.turn) ? ' · Check!' : ''}`;
+    if (st.mode === 'online' && !st.seats[st.turn] && mine) t += ' · make a move to take this side';
+    else if (st.mode !== 'local' && mine) t = `Your move${G.check && G.check(st.g, st.turn) ? ' · Check!' : ''}`;
+    return t;
+  }
+  function draw() {
+    statusEl.textContent = statusText();
+    statusEl.classList.toggle('over', !!st.over);
+    G.render(st, { side: mySide(), mine: canAct(st.turn, mp.self) });
+  }
+  function doMove(mv, who) { // runs on the computer that holds the game
+    const side = st.turn;
+    if (!canAct(side, who) || !G.legal(st.g, mv, side)) return;
+    if (st.mode === 'online' && !st.seats[side] && who !== 'cpu') st.seats[side] = who;
+    const passes = G.apply(st.g, mv, side);
+    st.last = mv; st.n++;
+    if (passes) st.turn = 1 - side;
+    st.over = G.result(st.g, st.turn);
+    draw(); W.push();
+    if (st.mode === 'cpu' && st.turn === 1 && !st.over) { clearTimeout(aiTimer); aiTimer = setTimeout(() => { const m = G.ai(st.g, 1); if (m != null) doMove(m, 'cpu'); }, 350); }
+  }
+  const ask = (d, fn) => { if (isLead(W)) fn(); else sendInput(W, d); };
+  const restart = mode => ask({ new: mode }, () => { clearTimeout(aiTimer); st = fresh(mode || st.mode); draw(); W.push(); });
+  W.onInput = (d, from) => { if (d.new) restart(d.new); else if (d.mv != null) doMove(d.mv, from); };
+  shareState(W, () => st, d => { st = d; draw(); });
+  G.mount(board, { move: mv => ask({ mv }, () => doMove(mv, mp.self)), get st() { return st; }, view: () => ({ side: mySide(), mine: canAct(st.turn, mp.self) }) });
+  menuBar(W, q('.menu'), {
+    Game: [['New game', () => restart()],
+      ['Play the computer', () => restart('cpu'), () => st.mode === 'cpu'],
+      ['Two players, this screen', () => restart('local'), () => st.mode === 'local'],
+      ['Two players, multiplayer room', () => live() ? restart('online') : openMpPanel(), () => st.mode === 'online'],
+      ['Close', () => closeWin(W)]],
+  });
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); clearTimeout(aiTimer); delete BG_SINGLES[G.key]; };
+  BG_SINGLES[G.key] = W;
+  st = fresh(live() ? 'online' : 'cpu'); draw();
+  return W;
+}
+// helpers for the computer players
+const shuffleBy = (arr, rnd = Math.random) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
+
+/* tic-tac-toe */
+const TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
+function tttResult(b) {
+  for (const l of TTT_LINES) if (b[l[0]] >= 0 && b[l[0]] === b[l[1]] && b[l[1]] === b[l[2]]) return { winner: b[l[0]], line: l };
+  return b.every(v => v >= 0) ? { winner: -1 } : null;
+}
+function openTicTacToe() {
+  let cells = [];
+  return boardGame({
+    key: 'ttt', title: 'Tic-Tac-Toe', icon: I.tictactoe, w: 340, h: 420, sides: ['X', 'O'],
+    init: () => ({ b: Array(9).fill(-1) }),
+    legal: (g, i) => Number.isInteger(i) && g.b[i] === -1,
+    apply: (g, i, side) => { g.b[i] = side; return true; },
+    result: g => tttResult(g.b),
+    ai(g, side) { // perfect play, with a random pick among equally good moves
+      const score = (b, turn, depth) => {
+        const r = tttResult(b); if (r) return r.winner < 0 ? 0 : (r.winner === side ? 10 - depth : depth - 10);
+        let best = turn === side ? -99 : 99;
+        b.forEach((v, i) => { if (v < 0) { b[i] = turn; const s = score(b, 1 - turn, depth + 1); b[i] = -1; best = turn === side ? Math.max(best, s) : Math.min(best, s); } });
+        return best;
+      };
+      const opts = shuffleBy(g.b.map((v, i) => v < 0 ? i : -1).filter(i => i >= 0));
+      let best = opts[0], bs = -99;
+      opts.forEach(i => { g.b[i] = side; const s = score(g.b, 1 - side, 1); g.b[i] = -1; if (s > bs) { bs = s; best = i; } });
+      return best;
+    },
+    mount(board, api) {
+      board.innerHTML = '<div class="ttt-grid">' + '<button class="ttt-c"></button>'.repeat(9) + '</div>';
+      cells = [...board.querySelectorAll('.ttt-c')];
+      cells.forEach((c, i) => c.onclick = () => api.move(i));
+    },
+    render(st, view) {
+      const line = st.over && st.over.line || [];
+      cells.forEach((c, i) => {
+        const v = st.g.b[i];
+        c.textContent = v < 0 ? '' : v ? 'O' : 'X';
+        c.className = 'ttt-c' + (v === 0 ? ' x' : v === 1 ? ' o' : '') + (line.includes(i) ? ' win' : '') + (v < 0 && view.mine ? ' can' : '');
+      });
+    },
+  });
+}
+
+/* connect four */
+const C4_W = 7, C4_H = 6;
+function c4Lines(b) { // every run of four, as cell lists
+  const out = [];
+  for (let r = 0; r < C4_H; r++) for (let c = 0; c < C4_W; c++)
+    for (const [dr, dc] of [[0, 1], [1, 0], [1, 1], [1, -1]]) {
+      const er = r + dr * 3, ec = c + dc * 3;
+      if (er < 0 || er >= C4_H || ec < 0 || ec >= C4_W) continue;
+      out.push([0, 1, 2, 3].map(k => (r + dr * k) * C4_W + c + dc * k));
+    }
+  return out;
+}
+const C4_RUNS = c4Lines();
+function c4Result(b) {
+  for (const l of C4_RUNS) if (b[l[0]] >= 0 && l.every(i => b[i] === b[l[0]])) return { winner: b[l[0]], line: l };
+  return b.every(v => v >= 0) ? { winner: -1 } : null;
+}
+const c4Drop = (b, col) => { for (let r = C4_H - 1; r >= 0; r--) if (b[r * C4_W + col] < 0) return r * C4_W + col; return -1; };
+function openConnectFour() {
+  let holes = [], cols = [], lastDrop = -1, boardEl = null;
+  return boardGame({
+    key: 'c4', title: 'Connect Four', icon: I.connect4, w: 470, h: 500, sides: ['Red', 'Yellow'],
+    init: () => ({ b: Array(C4_W * C4_H).fill(-1), last: -1 }),
+    legal: (g, col) => Number.isInteger(col) && col >= 0 && col < C4_W && c4Drop(g.b, col) >= 0,
+    apply: (g, col, side) => { const i = c4Drop(g.b, col); g.b[i] = side; g.last = i; return true; },
+    result: g => c4Result(g.b),
+    ai(g, side) { // looks 5 moves ahead and scores open runs
+      const evalB = b => {
+        let s = 0;
+        for (const l of C4_RUNS) {
+          let mine = 0, theirs = 0;
+          for (const i of l) { if (b[i] === side) mine++; else if (b[i] === 1 - side) theirs++; }
+          if (mine && !theirs) s += [0, 1, 4, 16][mine] || 0;
+          if (theirs && !mine) s -= [0, 1, 5, 20][theirs] || 0;
+        }
+        for (let r = 0; r < C4_H; r++) { if (b[r * C4_W + 3] === side) s += 2; else if (b[r * C4_W + 3] === 1 - side) s -= 2; }
+        return s;
+      };
+      const order = [3, 2, 4, 1, 5, 0, 6];
+      const search = (b, turn, depth, a, z) => {
+        const r = c4Result(b);
+        if (r) return r.winner < 0 ? 0 : (r.winner === side ? 10000 + depth : -10000 - depth);
+        if (!depth) return evalB(b);
+        let best = turn === side ? -Infinity : Infinity;
+        for (const c of order) {
+          const i = c4Drop(b, c); if (i < 0) continue;
+          b[i] = turn; const s = search(b, 1 - turn, depth - 1, a, z); b[i] = -1;
+          if (turn === side) { best = Math.max(best, s); a = Math.max(a, s); } else { best = Math.min(best, s); z = Math.min(z, s); }
+          if (z <= a) break;
+        }
+        return best;
+      };
+      let best = -1, bs = -Infinity;
+      for (const c of shuffleBy([...order]).sort((x, y) => Math.abs(x - 3) - Math.abs(y - 3))) {
+        const i = c4Drop(g.b, c); if (i < 0) continue;
+        g.b[i] = side; const s = search(g.b, 1 - side, 5, -Infinity, Infinity); g.b[i] = -1;
+        if (s > bs) { bs = s; best = c; }
+      }
+      return best;
+    },
+    mount(board, api) {
+      boardEl = board;
+      board.innerHTML = '<div class="c4-grid">' + Array.from({ length: C4_W }, (_, c) => `<div class="c4-col" data-c="${c}">` + '<div class="c4-h"><i></i></div>'.repeat(C4_H) + '</div>').join('') + '</div>';
+      cols = [...board.querySelectorAll('.c4-col')];
+      holes = Array(C4_W * C4_H);
+      cols.forEach((col, c) => { [...col.children].forEach((h, r) => { holes[r * C4_W + c] = h; }); col.onclick = () => api.move(c); });
+    },
+    render(st, view) {
+      const line = st.over && st.over.line || [];
+      holes.forEach((h, i) => {
+        const v = st.g.b[i];
+        h.className = 'c4-h' + (v === 0 ? ' red' : v === 1 ? ' yel' : '') + (line.includes(i) ? ' win' : '');
+        if (i === st.g.last && i !== lastDrop) { h.style.setProperty('--fall', Math.floor(i / C4_W) + 1); h.classList.add('c4-fall'); }
+      });
+      lastDrop = st.g.last;
+      cols.forEach((col, c) => col.classList.toggle('can', view.mine && c4Drop(st.g.b, c) >= 0));
+      boardEl.style.setProperty('--next', st.turn ? '#f5c518' : '#e23b3b');
+    },
+  });
+}
+
+/* checkers: side 0 (red) starts at the bottom and moves up. Captures are compulsory, several in a row are
+   one turn, and a piece reaching the far row becomes a king. Cells: 0 empty, 1 red, 2 red king, 3 black, 4 black king */
+const ck = { side: v => v ? (v < 3 ? 0 : 1) : -1, king: v => v === 2 || v === 4 };
+function ckMoves(g, side) {
+  const out = [], jumps = [], b = g.b;
+  const from = g.chain != null ? [g.chain] : b.map((v, i) => ck.side(v) === side ? i : -1).filter(i => i >= 0);
+  for (const f of from) {
+    const r = f >> 3, c = f & 7, v = b[f], dirs = ck.king(v) ? [-1, 1] : [side ? 1 : -1];
+    for (const dr of dirs) for (const dc of [-1, 1]) {
+      const r1 = r + dr, c1 = c + dc, r2 = r + 2 * dr, c2 = c + 2 * dc;
+      if (r1 < 0 || r1 > 7 || c1 < 0 || c1 > 7) continue;
+      const mid = r1 * 8 + c1;
+      if (!b[mid]) { if (g.chain == null) out.push({ f, t: mid }); }
+      else if (ck.side(b[mid]) === 1 - side && r2 >= 0 && r2 <= 7 && c2 >= 0 && c2 <= 7 && !b[r2 * 8 + c2]) jumps.push({ f, t: r2 * 8 + c2, x: mid });
+    }
+  }
+  return jumps.length ? jumps : out;
+}
+function ckApply(g, mv, side) { // true when the turn passes
+  const v = g.b[mv.f]; g.b[mv.f] = 0; g.b[mv.t] = v;
+  const lastRow = side ? 7 : 0, promoted = !ck.king(v) && (mv.t >> 3) === lastRow;
+  if (promoted) g.b[mv.t] = v + 1;
+  if (mv.x != null) {
+    g.b[mv.x] = 0; g.quiet = 0;
+    if (!promoted) { g.chain = mv.t; const more = ckMoves(g, side); if (more.length && more[0].x != null) return false; }
+  } else g.quiet = (g.quiet || 0) + 1;
+  g.chain = null;
+  return true;
+}
+function openCheckers() {
+  let sq = [], pick = null, lastSt = null, lastView = null;
+  const findMove = (g, side, f, t) => ckMoves(g, side).find(m => m.f === f && m.t === t);
+  return boardGame({
+    key: 'ck', title: 'Checkers', icon: I.checkers, w: 470, h: 520, sides: ['Red', 'Black'],
+    init: () => ({ b: Array.from({ length: 64 }, (_, i) => ((i >> 3) + (i & 7)) % 2 ? ((i >> 3) < 3 ? 3 : (i >> 3) > 4 ? 1 : 0) : 0), chain: null, quiet: 0 }),
+    legal: (g, mv, side) => mv && typeof mv === 'object' && !!findMove(g, side, mv.f, mv.t),
+    apply: (g, mv, side) => ckApply(g, findMove(g, side, mv.f, mv.t), side),
+    result(g, turn) {
+      if (!ckMoves(g, turn).length) return { winner: 1 - turn, text: 'no moves left' };
+      return g.quiet >= 80 ? { winner: -1, text: 'Draw · 40 moves each without a capture' } : null;
+    },
+    ai(g, side) { // looks a few moves ahead; a chain of captures counts as one turn
+      const val = b => b.reduce((s, v, i) => { // kings 5, men 3 plus a little for moving forward
+        if (!v) return s;
+        const w = ck.king(v) ? 5 : 3 + 0.05 * (ck.side(v) ? i >> 3 : 7 - (i >> 3));
+        return s + (ck.side(v) === side ? w : -w);
+      }, 0);
+      const copy = g0 => ({ b: g0.b.slice(), chain: g0.chain, quiet: g0.quiet });
+      const search = (g0, turn, depth, a, z) => {
+        const ms = ckMoves(g0, turn);
+        if (!ms.length) return turn === side ? -1000 - depth : 1000 + depth;
+        if (!depth) return val(g0.b);
+        let best = turn === side ? -Infinity : Infinity;
+        for (const m of ms) {
+          const g1 = copy(g0), passes = ckApply(g1, m, turn), next = passes ? 1 - turn : turn;
+          const s = search(g1, next, passes ? depth - 1 : depth, a, z);
+          if (turn === side) { best = Math.max(best, s); a = Math.max(a, s); } else { best = Math.min(best, s); z = Math.min(z, s); }
+          if (z <= a) break;
+        }
+        return best;
+      };
+      let best = null, bs = -Infinity;
+      for (const m of shuffleBy(ckMoves(g, side))) {
+        const g1 = copy(g), passes = ckApply(g1, m, side);
+        const s = search(g1, passes ? 1 - side : side, 4, -Infinity, Infinity);
+        if (s > bs) { bs = s; best = m; }
+      }
+      return best && { f: best.f, t: best.t };
+    },
+    mount(board, api) {
+      board.innerHTML = '<div class="ck-grid">' + '<div class="ck-s"><i></i></div>'.repeat(64) + '</div>';
+      sq = [...board.querySelectorAll('.ck-s')];
+      sq.forEach((s, k) => s.onclick = () => {
+        const st = api.st, view = api.view(), i = s.dataset.i | 0;
+        if (!view.mine || st.over) return;
+        const side = st.turn;
+        if (pick != null && findMove(st.g, side, pick, i)) { api.move({ f: pick, t: i }); pick = null; return; }
+        pick = ckMoves(st.g, side).some(m => m.f === i) ? i : null;
+        this.render(st, view);
+      });
+    },
+    render(st, view) {
+      lastSt = st; lastView = view;
+      if (st.g.chain != null) pick = st.g.chain;
+      if (pick != null && !view.mine) pick = null;
+      const flip = view.side === 1, targets = pick != null && view.mine ? ckMoves(st.g, st.turn).filter(m => m.f === pick).map(m => m.t) : [];
+      const movable = view.mine ? new Set(ckMoves(st.g, st.turn).map(m => m.f)) : new Set();
+      sq.forEach((s, k) => {
+        const i = flip ? 63 - k : k, v = st.g.b[i], dark = ((i >> 3) + (i & 7)) % 2;
+        s.dataset.i = i;
+        s.className = 'ck-s' + (dark ? ' dark' : '') + (i === pick ? ' pick' : '') + (targets.includes(i) ? ' to' : '') + (st.last && (st.last.f === i || st.last.t === i) ? ' last' : '') + (movable.has(i) ? ' can' : '');
+        s.firstChild.className = v ? 'ck-p ' + (ck.side(v) ? 'black' : 'red') + (ck.king(v) ? ' king' : '') : '';
+      });
+    },
+  });
+}
+
+/* chess: white (side 0) at the bottom. Squares 0-63, row 0 is the 8th rank. Pieces are letters, white in
+   capitals (KQRBNP), black in lower case. Pawns promote to a queen. */
+const CH_N = [[-2, -1], [-2, 1], [-1, -2], [-1, 2], [1, -2], [1, 2], [2, -1], [2, 1]];
+const CH_K = [[-1, -1], [-1, 0], [-1, 1], [0, -1], [0, 1], [1, -1], [1, 0], [1, 1]];
+const CH_ROOK = [[-1, 0], [1, 0], [0, -1], [0, 1]], CH_BISHOP = [[-1, -1], [-1, 1], [1, -1], [1, 1]];
+const chSide = p => !p ? -1 : p === p.toUpperCase() ? 0 : 1;
+const chOf = (side, p) => side ? p.toLowerCase() : p;
+const onB = (r, c) => r >= 0 && r < 8 && c >= 0 && c < 8;
+function chAttacked(b, sq, by) {
+  const r = sq >> 3, c = sq & 7, pr = by ? r - 1 : r + 1;
+  for (const dc of [-1, 1]) if (onB(pr, c + dc) && b[pr * 8 + c + dc] === chOf(by, 'P')) return true;
+  for (const [dr, dc] of CH_N) if (onB(r + dr, c + dc) && b[(r + dr) * 8 + c + dc] === chOf(by, 'N')) return true;
+  for (const [dr, dc] of CH_K) if (onB(r + dr, c + dc) && b[(r + dr) * 8 + c + dc] === chOf(by, 'K')) return true;
+  for (const [dirs, kinds] of [[CH_ROOK, 'RQ'], [CH_BISHOP, 'BQ']])
+    for (const [dr, dc] of dirs) {
+      let rr = r + dr, cc = c + dc;
+      while (onB(rr, cc)) {
+        const p = b[rr * 8 + cc];
+        if (p) { if (chSide(p) === by && kinds.includes(p.toUpperCase())) return true; break; }
+        rr += dr; cc += dc;
+      }
+    }
+  return false;
+}
+function chPseudo(g, side) {
+  const b = g.b, out = [];
+  for (let f = 0; f < 64; f++) {
+    const p = b[f]; if (chSide(p) !== side) continue;
+    const r = f >> 3, c = f & 7, k = p.toUpperCase();
+    const add = (t, promo) => out.push(promo ? { f, t, p: 'Q' } : { f, t });
+    if (k === 'P') {
+      const dir = side ? 1 : -1, start = side ? 1 : 6, last = side ? 7 : 0, r1 = r + dir;
+      if (onB(r1, c) && !b[r1 * 8 + c]) {
+        add(r1 * 8 + c, r1 === last);
+        if (r === start && !b[(r + 2 * dir) * 8 + c]) add((r + 2 * dir) * 8 + c);
+      }
+      for (const dc of [-1, 1]) {
+        if (!onB(r1, c + dc)) continue;
+        const t = r1 * 8 + c + dc;
+        if (chSide(b[t]) === 1 - side || t === g.ep) add(t, r1 === last);
+      }
+    } else if (k === 'N' || k === 'K') {
+      for (const [dr, dc] of k === 'N' ? CH_N : CH_K) if (onB(r + dr, c + dc) && chSide(b[(r + dr) * 8 + c + dc]) !== side) add((r + dr) * 8 + c + dc);
+      if (k === 'K' && f === (side ? 4 : 60) && !chAttacked(b, f, 1 - side)) { // castling
+        const [kSide, qSide] = side ? ['k', 'q'] : ['K', 'Q'];
+        if (g.castle.includes(kSide) && !b[f + 1] && !b[f + 2] && b[f + 3] === chOf(side, 'R') && !chAttacked(b, f + 1, 1 - side) && !chAttacked(b, f + 2, 1 - side)) add(f + 2);
+        if (g.castle.includes(qSide) && !b[f - 1] && !b[f - 2] && !b[f - 3] && b[f - 4] === chOf(side, 'R') && !chAttacked(b, f - 1, 1 - side) && !chAttacked(b, f - 2, 1 - side)) add(f - 2);
+      }
+    } else {
+      const dirs = k === 'R' ? CH_ROOK : k === 'B' ? CH_BISHOP : [...CH_ROOK, ...CH_BISHOP];
+      for (const [dr, dc] of dirs) {
+        let rr = r + dr, cc = c + dc;
+        while (onB(rr, cc)) {
+          const t = rr * 8 + cc;
+          if (chSide(b[t]) === side) break;
+          add(t);
+          if (b[t]) break;
+          rr += dr; cc += dc;
+        }
+      }
+    }
+  }
+  return out;
+}
+function chMake(g, m) {
+  const b = g.b.slice(), p = b[m.f], side = chSide(p), k = p.toUpperCase();
+  let castle = g.castle, captured = b[m.t];
+  if (k === 'P' && m.t === g.ep && !captured) { captured = b[m.t + (side ? -8 : 8)]; b[m.t + (side ? -8 : 8)] = ''; } // en passant
+  b[m.t] = m.p ? chOf(side, m.p) : p; b[m.f] = '';
+  if (k === 'K' && Math.abs(m.t - m.f) === 2) { // castling moves the rook too
+    const [rf, rt] = m.t > m.f ? [m.f + 3, m.f + 1] : [m.f - 4, m.f - 1];
+    b[rt] = b[rf]; b[rf] = '';
+  }
+  if (k === 'K') castle = castle.replace(side ? /[kq]/g : /[KQ]/g, '');
+  for (const [sq, right] of [[63, 'K'], [56, 'Q'], [7, 'k'], [0, 'q']]) if (m.f === sq || m.t === sq) castle = castle.replace(right, '');
+  return { b, castle, ep: k === 'P' && Math.abs(m.t - m.f) === 16 ? (m.f + m.t) / 2 : -1, half: k === 'P' || captured ? 0 : g.half + 1 };
+}
+const chKing = (b, side) => b.indexOf(chOf(side, 'K'));
+const chInCheck = (g, side) => chAttacked(g.b, chKing(g.b, side), 1 - side);
+const chLegal = (g, side) => chPseudo(g, side).filter(m => { const n = chMake(g, m); return !chAttacked(n.b, chKing(n.b, side), 1 - side); });
+const CH_VAL = { P: 100, N: 320, B: 330, R: 500, Q: 900, K: 0 };
+function chEval(b, side) { // material, plus a little for central squares and for pawns moving up
+  let s = 0;
+  for (let i = 0; i < 64; i++) {
+    const p = b[i]; if (!p) continue;
+    const k = p.toUpperCase(), ps = chSide(p), r = i >> 3, c = i & 7;
+    let v = CH_VAL[k];
+    if (k === 'N' || k === 'B') v += 12 - 4 * (Math.abs(3.5 - r) + Math.abs(3.5 - c)) / 2;
+    if (k === 'P') v += 6 * (ps ? r - 1 : 6 - r) + (c >= 2 && c <= 5 ? 4 : 0);
+    s += ps === side ? v : -v;
+  }
+  return s;
+}
+function chAi(g, side) {
+  const order = (b, ms) => ms.sort((x, y) => (CH_VAL[(b[y.t] || 'P').toUpperCase()] * (b[y.t] ? 1 : 0)) - (CH_VAL[(b[x.t] || 'P').toUpperCase()] * (b[x.t] ? 1 : 0)));
+  const search = (g0, turn, depth, a, z, ply) => {
+    const ms = chLegal(g0, turn);
+    if (!ms.length) return chInCheck(g0, turn) ? -100000 + ply : 0;
+    if (!depth) return chEval(g0.b, turn);
+    let best = -Infinity;
+    for (const m of order(g0.b, ms)) {
+      const s = -search(chMake(g0, m), 1 - turn, depth - 1, -z, -a, ply + 1);
+      if (s > best) best = s;
+      if (s > a) a = s;
+      if (a >= z) break;
+    }
+    return best;
+  };
+  let best = null, bs = -Infinity;
+  for (const m of order(g.b, shuffleBy(chLegal(g, side)))) {
+    const s = -search(chMake(g, m), 1 - side, 2, -Infinity, -bs, 1);
+    if (s > bs) { bs = s; best = m; }
+  }
+  return best;
+}
+const CH_GLYPH = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟' };
+function openChess() {
+  let sq = [], pick = null;
+  const find = (g, side, mv) => chLegal(g, side).find(m => m.f === mv.f && m.t === mv.t);
+  return boardGame({
+    key: 'chess', title: 'Chess', icon: I.chess, w: 500, h: 560, sides: ['White', 'Black'],
+    init: () => ({ b: [...'rnbqkbnr', ...'pppppppp', ...Array(32).fill(''), ...'PPPPPPPP', ...'RNBQKBNR'].map(x => x || ''), castle: 'KQkq', ep: -1, half: 0 }),
+    legal: (g, mv, side) => mv && typeof mv === 'object' && !!find(g, side, mv),
+    apply: (g, mv, side) => { Object.assign(g, chMake(g, find(g, side, mv))); return true; },
+    check: (g, side) => chInCheck(g, side),
+    result(g, turn) {
+      if (!chLegal(g, turn).length) return chInCheck(g, turn) ? { winner: 1 - turn, text: 'checkmate' } : { winner: -1, text: 'Stalemate · draw' };
+      if (g.half >= 100) return { winner: -1, text: 'Draw · 50 moves without a capture or pawn move' };
+      const rest = g.b.filter(p => p && p.toUpperCase() !== 'K');
+      if (rest.length <= 1 && rest.every(p => 'NB'.includes(p.toUpperCase()))) return { winner: -1, text: 'Draw · not enough pieces to checkmate' };
+      return null;
+    },
+    ai: (g, side) => { const m = chAi(g, side); return m && { f: m.f, t: m.t }; },
+    mount(board, api) {
+      board.innerHTML = '<div class="ch-grid">' + '<div class="ch-s"><span></span><em></em></div>'.repeat(64) + '</div>';
+      sq = [...board.querySelectorAll('.ch-s')];
+      sq.forEach(s => s.onclick = () => {
+        const st = api.st, view = api.view(), i = s.dataset.i | 0;
+        if (!view.mine || st.over) return;
+        if (pick != null && find(st.g, st.turn, { f: pick, t: i })) { api.move({ f: pick, t: i }); pick = null; return; }
+        pick = chSide(st.g.b[i]) === st.turn ? i : null;
+        this.render(st, view);
+      });
+    },
+    render(st, view) {
+      if (!view.mine) pick = null;
+      const flip = view.side === 1, legal = view.mine ? chLegal(st.g, st.turn) : [];
+      const targets = pick != null ? legal.filter(m => m.f === pick).map(m => m.t) : [];
+      const checked = chInCheck(st.g, st.turn) ? chKing(st.g.b, st.turn) : -1;
+      sq.forEach((s, k) => {
+        const i = flip ? 63 - k : k, p = st.g.b[i], r = i >> 3, c = i & 7;
+        s.dataset.i = i;
+        s.className = 'ch-s' + ((r + c) % 2 ? ' dark' : '') + (i === pick ? ' pick' : '') + (targets.includes(i) ? (p ? ' to hit' : ' to') : '')
+          + (st.last && (st.last.f === i || st.last.t === i) ? ' last' : '') + (i === checked ? ' check' : '');
+        const span = s.firstChild;
+        span.textContent = p ? CH_GLYPH[p.toUpperCase()] + '︎' : ''; // text style, never emoji
+        span.className = p ? (chSide(p) ? 'bk' : 'wh') : '';
+        s.lastChild.textContent = (k % 8 === 0 ? 8 - r : '') + (k >= 56 ? ' ' + 'abcdefgh'[c] : '');
+      });
+    },
+  });
+}
+
+/* ---------- 2048 ---------- */
+let g2048Win = null;
+function open2048() {
+  if (g2048Win) { focusWin(g2048Win); return g2048Win; }
+  const W = makeWin({ title: '2048', icon: I.g2048, w: 380, h: 520 });
+  W.body.innerHTML = '<div class="tz"><div class="tz-top"><div class="tz-box"><small>SCORE</small><b class="tz-score">0</b></div><div class="tz-box"><small>BEST</small><b class="tz-best">0</b></div><button class="okbtn tz-new">New game</button></div>'
+    + '<div class="tz-board"><div class="tz-bg">' + '<i></i>'.repeat(16) + '</div><div class="tz-tiles"></div><div class="tz-note" hidden></div></div>'
+    + '<div class="tz-help">Arrow keys, WASD or swipe</div></div>';
+  const q = sel => W.body.querySelector(sel), tilesEl = q('.tz-tiles'), note = q('.tz-note');
+  let st, best = store.get('2048-best', 0), nextId = 1;
+  const els = new Map();
+  const spawn = s => {
+    const free = []; for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) if (!s.tiles.some(t => t.r === r && t.c === c)) free.push([r, c]);
+    if (!free.length) return;
+    const [r, c] = free[Math.floor(Math.random() * free.length)];
+    s.tiles.push({ id: nextId++, v: Math.random() < 0.9 ? 2 : 4, r, c, born: 1 });
+  };
+  function newGame() { st = { tiles: [], score: 0, over: false, won: false, keep: false }; spawn(st); spawn(st); }
+  const canMove = s => s.tiles.length < 16 || s.tiles.some(a => s.tiles.some(b => b.v === a.v && Math.abs(a.r - b.r) + Math.abs(a.c - b.c) === 1));
+  function slide(dir) { // 0 up, 1 right, 2 down, 3 left; true if anything moved
+    const [dr, dc] = [[-1, 0], [0, 1], [1, 0], [0, -1]][dir];
+    const grid = Array.from({ length: 4 }, () => Array(4).fill(null));
+    st.tiles = st.tiles.filter(t => !t.gone);
+    st.tiles.forEach(t => { t.born = 0; t.merged = 0; grid[t.r][t.c] = t; });
+    const order = [0, 1, 2, 3], rows = dr > 0 ? [...order].reverse() : order, cols = dc > 0 ? [...order].reverse() : order;
+    let moved = false;
+    for (const r of rows) for (const c of cols) {
+      const t = grid[r][c]; if (!t) continue;
+      let nr = r, nc = c;
+      while (true) {
+        const rr = nr + dr, cc = nc + dc;
+        if (rr < 0 || rr > 3 || cc < 0 || cc > 3) break;
+        const o = grid[rr][cc];
+        if (!o) { nr = rr; nc = cc; continue; }
+        if (o.v === t.v && !o.merged) { // merge: this tile slides into o and disappears, o doubles
+          grid[r][c] = null; t.r = rr; t.c = cc; t.gone = 1; o.v *= 2; o.merged = 1; st.score += o.v; moved = true;
+          if (o.v === 2048 && !st.keep) st.won = true;
+          nr = null;
+        }
+        break;
+      }
+      if (nr !== null && (nr !== r || nc !== c)) { grid[r][c] = null; grid[nr][nc] = t; t.r = nr; t.c = nc; moved = true; }
+    }
+    if (moved) { spawn(st); st.over = !canMove({ tiles: st.tiles.filter(t => !t.gone) }); }
+    return moved;
+  }
+  function draw() {
+    q('.tz-score').textContent = st.score;
+    if (st.score > best) { best = st.score; store.set('2048-best', best); }
+    q('.tz-best').textContent = best;
+    const seen = new Set();
+    st.tiles.forEach(t => {
+      seen.add(t.id);
+      let e = els.get(t.id);
+      if (!e) { e = el('<div class="tz-t"></div>'); els.set(t.id, e); tilesEl.append(e); if (t.born) e.classList.add('born'); }
+      e.textContent = t.v; e.dataset.v = Math.min(t.v, 4096);
+      e.style.setProperty('--r', t.r); e.style.setProperty('--c', t.c);
+      e.classList.toggle('merged', !!t.merged); e.style.zIndex = t.gone ? 1 : 2;
+      if (t.gone) setTimeout(() => { e.remove(); els.delete(t.id); }, 130);
+    });
+    els.forEach((e, id) => { if (!seen.has(id)) { e.remove(); els.delete(id); } });
+    note.hidden = !(st.over || (st.won && !st.keep));
+    if (!note.hidden) {
+      note.innerHTML = st.over ? '<b>Game over</b><button class="okbtn">Try again</button>' : '<b>You made 2048!</b><button class="okbtn">Keep going</button>';
+      note.querySelector('button').onclick = () => st.over ? restart() : ask({ keep: 1 }, () => { st.keep = true; st.won = false; draw(); W.push(); });
+    }
+  }
+  // in a room everyone plays one board: moves go to the opener's computer and the board comes back
+  const ask = (d, fn) => { if (isLead(W)) fn(); else sendInput(W, d); };
+  const move = dir => ask({ dir }, () => { if (st.over || (st.won && !st.keep)) return; if (slide(dir)) { draw(); W.push(); } });
+  const restart = () => ask({ new: 1 }, () => { els.forEach(e => e.remove()); els.clear(); newGame(); draw(); W.push(); });
+  W.onInput = d => { if (d.new) restart(); else if (d.keep) { st.keep = true; st.won = false; draw(); W.push(); } else if ([0, 1, 2, 3].includes(d.dir)) move(d.dir); };
+  shareState(W, () => st, d => { st = d; nextId = Math.max(nextId, ...st.tiles.map(t => t.id + 1)); draw(); });
+  q('.tz-new').onclick = restart;
+  const KEYS = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
+  const onKey = e => { if (!W.el.classList.contains('active') || !(e.key in KEYS) || e.target.matches?.('input, textarea')) return; e.preventDefault(); move(KEYS[e.key]); };
+  document.addEventListener('keydown', onKey);
+  const bd = q('.tz-board'); let sx = 0, sy = 0;
+  bd.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
+  bd.addEventListener('pointerup', e => {
+    const dx = e.clientX - sx, dy = e.clientY - sy; if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
+  });
+  W.onClose = () => { document.removeEventListener('keydown', onKey); g2048Win = null; };
+  g2048Win = W;
+  newGame(); draw();
+  return W;
+}
+
+/* ---------- daily sudoku ---------- */
+// Everyone gets the same puzzle each day (made from the date, like the daily Minesweeper board).
+function sdSolve(grid, limit = 2) { // counts solutions up to `limit`; fills `grid` with the first one found
+  const rows = Array(9).fill(0), cols = Array(9).fill(0), boxes = Array(9).fill(0), empty = [];
+  for (let i = 0; i < 81; i++) {
+    const v = grid[i], r = (i / 9) | 0, c = i % 9, bx = ((r / 3) | 0) * 3 + ((c / 3) | 0);
+    if (v) { const m = 1 << v; rows[r] |= m; cols[c] |= m; boxes[bx] |= m; } else empty.push(i);
+  }
+  let count = 0, first = null;
+  const go = k => {
+    if (count >= limit) return;
+    if (k === empty.length) { count++; if (!first) first = grid.slice(); return; }
+    // fill the most constrained cell next
+    let bi = k, bestOpts = 10;
+    for (let j = k; j < empty.length; j++) {
+      const i = empty[j], r = (i / 9) | 0, c = i % 9, used = rows[r] | cols[c] | boxes[((r / 3) | 0) * 3 + ((c / 3) | 0)];
+      let n = 0; for (let v = 1; v <= 9; v++) if (!(used & (1 << v))) n++;
+      if (n < bestOpts) { bestOpts = n; bi = j; if (n <= 1) break; }
+    }
+    [empty[k], empty[bi]] = [empty[bi], empty[k]];
+    const i = empty[k], r = (i / 9) | 0, c = i % 9, bx = ((r / 3) | 0) * 3 + ((c / 3) | 0), used = rows[r] | cols[c] | boxes[bx];
+    for (let v = 1; v <= 9; v++) {
+      if (used & (1 << v)) continue;
+      const m = 1 << v; grid[i] = v; rows[r] |= m; cols[c] |= m; boxes[bx] |= m;
+      go(k + 1);
+      grid[i] = 0; rows[r] &= ~m; cols[c] &= ~m; boxes[bx] &= ~m;
+      if (count >= limit) break;
+    }
+    [empty[k], empty[bi]] = [empty[bi], empty[k]];
+  };
+  go(0);
+  if (first) first.forEach((v, i) => { grid[i] = v; });
+  return count;
+}
+function sdMake(seedText, keep = 30) { // a full random grid, then cells taken away while there's still exactly one solution
+  const rnd = seededRandom(seedText), sol = Array(81).fill(0);
+  const fill = i => {
+    if (i === 81) return true;
+    const r = (i / 9) | 0, c = i % 9;
+    for (const v of shuffleBy([1, 2, 3, 4, 5, 6, 7, 8, 9], rnd)) {
+      let ok = true;
+      for (let k = 0; k < 9 && ok; k++) {
+        if (sol[r * 9 + k] === v || sol[k * 9 + c] === v) ok = false;
+        const br = ((r / 3) | 0) * 3 + ((k / 3) | 0), bc = ((c / 3) | 0) * 3 + k % 3;
+        if (sol[br * 9 + bc] === v) ok = false;
+      }
+      if (!ok) continue;
+      sol[i] = v; if (fill(i + 1)) return true; sol[i] = 0;
+    }
+    return false;
+  };
+  fill(0);
+  const puzzle = sol.slice();
+  let left = 81;
+  for (const i of shuffleBy([...Array(81).keys()], rnd)) {
+    if (left <= keep) break;
+    const v = puzzle[i]; puzzle[i] = 0;
+    if (sdSolve(puzzle.slice()) !== 1) puzzle[i] = v; else left--;
+  }
+  return { puzzle, sol };
+}
+let sdWin = null;
+function openSudoku() {
+  if (sdWin) { focusWin(sdWin); return sdWin; }
+  const W = makeWin({ title: 'Sudoku', icon: I.sudoku, w: 420, h: 600 });
+  W.body.innerHTML = '<div class="menu"></div><div class="sd"><div class="sd-top"><span class="sd-name"></span><span class="sd-time">0:00</span></div>'
+    + '<div class="sd-grid">' + ('<div class="sd-c"><b></b><i>' + '<s></s>'.repeat(9) + '</i></div>').repeat(81) + '</div>'
+    + '<div class="sd-pad">' + [1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => `<button class="sd-k" data-n="${n}">${n}</button>`).join('') + '<button class="sd-k sd-del" data-n="0" aria-label="Erase">⌫</button><button class="sd-k sd-notes" aria-pressed="false">Notes</button></div>'
+    + '<div class="sd-note" hidden></div></div>';
+  const q = sel => W.body.querySelector(sel), cells = [...W.body.querySelectorAll('.sd-c')], note = q('.sd-note');
+  let st, sol = [], sel = -1, notesMode = false, timer = null;
+  const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const elapsed = () => st.done ? st.time : st.t0 ? Math.floor((Date.now() - st.t0) / 1000) + (st.time || 0) : st.time || 0;
+  function load(daily) {
+    const day = dayKey(), seed = daily ? `sudoku|${day}` : `sudoku|free|${Math.random()}`;
+    const { puzzle, sol: s } = sdMake(seed);
+    sol = s;
+    const saved = daily && store.get(`sudoku:${day}`);
+    st = saved && saved.vals ? saved : { daily, day, seed, given: puzzle, vals: puzzle.slice(), notes: Array(81).fill(0), done: false, time: 0, t0: 0 };
+    st.t0 = st.done ? 0 : Date.now(); sel = -1;
+  }
+  const save = () => { if (st.daily) store.set(`sudoku:${st.day}`, { ...st, time: elapsed(), t0: 0 }); };
+  function conflicts() {
+    const bad = new Set();
+    for (let i = 0; i < 81; i++) {
+      const v = st.vals[i]; if (!v) continue;
+      const r = (i / 9) | 0, c = i % 9;
+      for (let j = 0; j < 81; j++) {
+        if (j === i || st.vals[j] !== v) continue;
+        const r2 = (j / 9) | 0, c2 = j % 9;
+        if (r2 === r || c2 === c || (((r2 / 3) | 0) === ((r / 3) | 0) && ((c2 / 3) | 0) === ((c / 3) | 0))) bad.add(i);
+      }
+    }
+    return bad;
+  }
+  function draw() {
+    q('.sd-name').textContent = st.daily ? `Daily Sudoku · ${st.day}` : 'Free play';
+    const bad = conflicts(), sv = sel >= 0 ? st.vals[sel] : 0, sr = (sel / 9) | 0, sc = sel % 9;
+    cells.forEach((cel, i) => {
+      const v = st.vals[i], r = (i / 9) | 0, c = i % 9;
+      cel.firstChild.textContent = v || '';
+      [...cel.lastChild.children].forEach((s, k) => { s.textContent = !v && st.notes[i] & (1 << (k + 1)) ? k + 1 : ''; });
+      cel.className = 'sd-c' + (st.given[i] ? ' given' : '') + (i === sel ? ' sel' : '')
+        + (sel >= 0 && i !== sel && (r === sr || c === sc || (((r / 3) | 0) === ((sr / 3) | 0) && ((c / 3) | 0) === ((sc / 3) | 0))) ? ' near' : '')
+        + (sv && v === sv ? ' same' : '') + (bad.has(i) ? ' bad' : '') + (c % 3 === 2 && c < 8 ? ' rb' : '') + (r % 3 === 2 && r < 8 ? ' bb' : '');
+    });
+    q('.sd-notes').classList.toggle('on', notesMode); q('.sd-notes').setAttribute('aria-pressed', notesMode);
+    q('.sd-time').textContent = mmss(elapsed());
+    note.hidden = !st.done;
+    if (st.done) {
+      const best = store.get('sudoku-best', null);
+      note.innerHTML = `<b>Solved in ${mmss(st.time)}!</b>${st.daily ? `<span>Next daily puzzle in ${untilTomorrow()}</span>` : ''}${best != null ? `<span>Best: ${mmss(best)}</span>` : ''}<button class="okbtn">Close</button>`;
+      note.querySelector('button').onclick = () => { note.hidden = true; };
+    }
+  }
+  // in a room everyone fills the same grid: entries go to the opener's computer and the grid comes back
+  const ask = (d, fn) => { if (isLead(W)) fn(); else sendInput(W, d); };
+  function put(i, n, asNote) {
+    if (st.done || i < 0 || i > 80 || st.given[i] || !(n >= 0 && n <= 9)) return;
+    if (asNote && n) { if (!st.vals[i]) st.notes[i] ^= 1 << n; }
+    else { st.vals[i] = n; if (n) st.notes[i] = 0; }
+    if (st.vals.every((v, k) => v === sol[k])) {
+      st.done = true; st.time = elapsed(); st.t0 = 0;
+      const best = store.get('sudoku-best', null); if (best == null || st.time < best) store.set('sudoku-best', st.time);
+    }
+    save(); draw(); W.push();
+  }
+  const enter = n => { if (sel >= 0) ask({ put: [sel, n, notesMode] }, () => put(sel, n, notesMode)); };
+  const newPuzzle = daily => ask({ fresh: daily ? 'daily' : 'free' }, () => { load(daily); draw(); W.push(); });
+  W.onInput = d => { if (d.put) put(...d.put); else if (d.fresh) newPuzzle(d.fresh === 'daily'); };
+  shareState(W, () => ({ ...st, time: elapsed(), t0: 0, sol }), d => { sol = d.sol; st = { ...d, t0: d.done ? 0 : Date.now() }; draw(); });
+  cells.forEach((cel, i) => cel.onclick = () => { sel = i; draw(); });
+  W.body.querySelectorAll('.sd-k[data-n]').forEach(b => b.onclick = () => enter(+b.dataset.n));
+  q('.sd-notes').onclick = () => { notesMode = !notesMode; draw(); };
+  const onKey = e => {
+    if (!W.el.classList.contains('active') || e.ctrlKey || e.metaKey || e.target.matches?.('input, textarea')) return;
+    if (/^[1-9]$/.test(e.key)) { e.preventDefault(); enter(+e.key); }
+    else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') { e.preventDefault(); enter(0); }
+    else if (e.key === 'n' || e.key === 'N') { notesMode = !notesMode; draw(); }
+    else if (e.key.startsWith('Arrow')) {
+      e.preventDefault(); if (sel < 0) sel = 0;
+      const r = (sel / 9) | 0, c = sel % 9, [dr, dc] = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] }[e.key];
+      sel = ((r + dr + 9) % 9) * 9 + (c + dc + 9) % 9; draw();
+    }
+  };
+  document.addEventListener('keydown', onKey);
+  menuBar(W, q('.menu'), {
+    Game: [['Daily puzzle', () => newPuzzle(true), () => st.daily], ['New random puzzle', () => newPuzzle(false), () => !st.daily], ['Close', () => closeWin(W)]],
+  });
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); document.removeEventListener('keydown', onKey); clearInterval(timer); if (st && !st.done) save(); sdWin = null; };
+  timer = setInterval(() => { if (st && !st.done) q('.sd-time').textContent = mmss(elapsed()); }, 1000);
+  sdWin = W;
+  load(true); draw();
+  return W;
+}
+
 /* ---------- desktop ---------- */
 // Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
 // and drag them to any cell; the layout is remembered in their browser.
@@ -1906,7 +2692,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'snake', 'solitaire', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'snake', 'solitaire', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {
@@ -2172,7 +2958,7 @@ function receive(m, from) {
     pickRoomClock(); refreshMp(); return;
   }
   if (!p) return;
-  if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d); return; }
+  if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d, p.id); return; }
   if (m.t === 'chat') {
     const text = String(m.text || '').slice(0, 300).trim(); if (!text) return;
     addChat({ id: p.id, name: p.name, color: p.color, text }); bubble(p, text);

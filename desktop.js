@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -350,6 +350,7 @@ function openApp(n, folder) {
   if (n.type === 'minesweeper') return openMinesweeper();
   if (n.type === 'wordle') return openWordle();
   if (n.type === 'paint') return openPaint();
+  if (n.type === 'pixelpaint') return openPixelPaint();
   if (n.type === 'pinball') return openPinball();
   if (n.type === 'snake') return openSnake();
   if (n.type === 'solitaire') return openSolitaire();
@@ -2568,6 +2569,505 @@ function openSudoku() {
   return W;
 }
 
+/* ---------- pixel paint ---------- */
+// A pixel-art editor. Pixels are stored as 0xRRGGBBAA numbers (0 = see-through), one array per animation frame.
+const PX_PALETTES = {
+  Classic: ['#000000', '#7f7f7f', '#c3c3c3', '#ffffff', '#880015', '#ed1c24', '#ff7f27', '#fff200', '#22b14c', '#b5e61d', '#00a2e8', '#99d9ea', '#3f48cc', '#7092be', '#a349a4', '#c8bfe7', '#b97a57', '#ffaec9', '#ffc90e', '#efe4b0'],
+  'PICO-8': ['#000000', '#1d2b53', '#7e2553', '#008751', '#ab5236', '#5f574f', '#c2c3c7', '#fff1e8', '#ff004d', '#ffa300', '#ffec27', '#00e436', '#29adff', '#83769c', '#ff77a8', '#ffccaa'],
+  'Game Boy': ['#0f380f', '#306230', '#8bac0f', '#9bbc0f'],
+  Endesga: ['#be4a2f', '#d77643', '#ead4aa', '#e4a672', '#b86f50', '#733e39', '#3e2731', '#a22633', '#e43b44', '#f77622', '#feae34', '#fee761', '#63c74d', '#3e8948', '#265c42', '#193c3e', '#124e89', '#0099db', '#2ce8f5', '#ffffff', '#c0cbdc', '#8b9bb4', '#5a6988', '#3a4466', '#262b44', '#181425', '#ff0044', '#68386c', '#b55088', '#f6757a', '#e8b796', '#c28569'],
+};
+const PX_TOOLS = [['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['dither', '▦', 'Dither brush: every other pixel (D)', 'd'], ['fill', '🪣', 'Fill (G) · Shift: every pixel of that color', 'g'],
+  ['line', '╱', 'Line (L) · Shift: straight', 'l'], ['rect', '▭', 'Rectangle (R) · Shift: square', 'r'], ['ellipse', '◯', 'Ellipse (O) · Shift: circle', 'o'], ['picker', '💧', 'Color picker (I)', 'i'], ['select', '⬚', 'Select and move (M)', 'm']];
+const pxPack = hex => ((parseInt(hex.slice(1, 7), 16) << 8) | 255) >>> 0;
+const pxHex = c => '#' + (c >>> 8).toString(16).padStart(6, '0');
+const pxB64 = a => { const u = new Uint8Array(a.buffer, a.byteOffset, a.byteLength); let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const pxUnB64 = (s, n) => { const b = atob(s), u = new Uint8Array(n * 4); for (let i = 0; i < u.length && i < b.length; i++) u[i] = b.charCodeAt(i); return new Uint32Array(u.buffer); };
+function pxGif(frames, w, h, scale, delayCs) { // animated GIF with see-through pixels (its own small LZW encoder)
+  const all = new Map([[0, 0]]); // color -> palette index; 0 is the see-through slot
+  const key = c => (c & 0xff) < 128 ? 0 : (c | 0xff) >>> 0;
+  let shift = 0;
+  const reduce = c => { if (!c) return 0; if (!shift) return c; const m = (0xff << shift) & 0xff; return ((((c >>> 24) & m) << 24) | ((((c >>> 16) & 0xff) & m) << 16) | ((((c >>> 8) & 0xff) & m) << 8) | 0xff) >>> 0; };
+  for (;;) { all.clear(); all.set(0, 0); for (const f of frames) for (const c of f) { const k = reduce(key(c)); if (!all.has(k)) all.set(k, all.size); } if (all.size <= 256 || shift >= 5) break; shift++; }
+  let bits = 1; while ((1 << bits) < all.size) bits++;
+  const out = [], W = w * scale, H = h * scale, word = v => out.push(v & 255, (v >> 8) & 255);
+  out.push(...[...'GIF89a'].map(c => c.charCodeAt(0))); word(W); word(H); out.push(0xf0 | (bits - 1), 0, 0);
+  const pal = Array(1 << bits).fill(0); all.forEach((i, c) => { pal[i] = c; });
+  pal.forEach(c => out.push((c >>> 24) & 255, (c >>> 16) & 255, (c >>> 8) & 255));
+  out.push(0x21, 0xff, 0x0b, ...[...'NETSCAPE2.0'].map(c => c.charCodeAt(0)), 3, 1, 0, 0, 0); // loop forever
+  const minSize = Math.max(2, bits);
+  for (const f of frames) {
+    out.push(0x21, 0xf9, 4, (2 << 2) | 1); word(delayCs); out.push(0, 0); // clear before the next frame, index 0 see-through
+    out.push(0x2c); word(0); word(0); word(W); word(H); out.push(0);
+    const idx = new Uint8Array(W * H);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) idx[y * W + x] = all.get(reduce(key(f[((y / scale) | 0) * w + ((x / scale) | 0)]))) || 0;
+    const data = [], clear = 1 << minSize, eoi = clear + 1;
+    let size = minSize + 1, next = eoi + 1, table = new Map(), cur = 0, nb = 0;
+    const emit = code => { cur |= code << nb; nb += size; while (nb >= 8) { data.push(cur & 255); cur >>>= 8; nb -= 8; } };
+    emit(clear);
+    let prefix = idx[0];
+    for (let i = 1; i < idx.length; i++) {
+      const k = idx[i], tk = prefix << 8 | k, code = table.get(tk);
+      if (code !== undefined) { prefix = code; continue; }
+      emit(prefix);
+      if (next === 4096) { emit(clear); next = eoi + 1; size = minSize + 1; table = new Map(); }
+      else { if (next >= (1 << size)) size++; table.set(tk, next++); }
+      prefix = k;
+    }
+    emit(prefix); emit(eoi); if (nb > 0) data.push(cur & 255);
+    out.push(minSize);
+    for (let i = 0; i < data.length; i += 255) { const part = data.slice(i, i + 255); out.push(part.length, ...part); }
+    out.push(0);
+  }
+  out.push(0x3b);
+  return new Blob([new Uint8Array(out)], { type: 'image/gif' });
+}
+let pxWin = null;
+function openPixelPaint() {
+  if (pxWin) { focusWin(pxWin); return pxWin; }
+  const W = makeWin({ title: 'Pixel Paint', icon: I.pixelpaint, w: 980, h: 680 });
+  W.body.innerHTML = '<div class="menu"></div><div class="pxp">'
+    + '<div class="pxp-tools"><div class="pxp-tg pxp-set"></div><div class="pxp-tg pxp-sizes"></div><div class="pxp-tg pxp-opts"></div></div>'
+    + '<div class="pxp-mid"><div class="pxp-area"><div class="pxp-stage"><canvas class="pxp-c"></canvas><canvas class="pxp-o"></canvas><canvas class="pxp-ui"></canvas></div></div>'
+    + '<div class="pxp-frames"><div class="pxp-fbtns"></div><div class="pxp-strip"></div></div></div>'
+    + '<div class="pxp-side"><div class="pxp-cols"><button class="pxp-sw c1" title="Color 1 (left button)"></button><button class="pxp-sw c2" title="Color 2 (right button)"></button>'
+    + '<button class="tbtn pxp-swap" title="Swap colors (X)">⇄</button></div><input type="color" class="pxp-custom" title="Pick any color for color 1" aria-label="Custom color">'
+    + '<button class="tbtn pxp-clear-c" title="Make color 1 see-through">See-through</button>'
+    + '<select class="pxp-palsel" aria-label="Palette"></select><div class="pxp-pal"></div><div class="pxp-recent"></div>'
+    + '<h4>Preview</h4><canvas class="pxp-prev"></canvas></div>'
+    + '<div class="pxp-dlg" hidden></div></div>'
+    + '<div class="status"><span class="pxp-pos"></span><span class="pxp-dim"></span><span class="pxp-zoomt"></span></div>';
+  const q = sel => W.body.querySelector(sel);
+  const cv = q('.pxp-c'), ov = q('.pxp-o'), ui = q('.pxp-ui'), area = q('.pxp-area'), stage = q('.pxp-stage');
+  const g = cv.getContext('2d'), go = ov.getContext('2d'), gu = ui.getContext('2d');
+  // document
+  let w = 32, h = 32, frames = [new Uint32Array(w * h)], cur = 0;
+  let tool = 'pencil', brush = 1, mirrorX = false, mirrorY = false, filled = false, grid = true, onion = false, fps = 8, playing = false;
+  let c1 = pxPack('#000000'), c2 = 0, zoom = 12, palName = 'Classic', recent = [];
+  let sel = null, float = null, clip = null; // selection {x,y,w,h}; floating pixels {x,y,w,h,d}
+  const undo = [], redo = [];
+  const frame = () => frames[cur];
+  // saving: kept in this browser; in a room every change is sent to the others
+  const serialize = () => ({ w, h, frames: frames.map(pxB64), fps });
+  function loadDoc(d) {
+    if (!d || !d.w || !d.h || !Array.isArray(d.frames) || !d.frames.length) return;
+    w = Math.max(1, Math.min(256, d.w | 0)); h = Math.max(1, Math.min(256, d.h | 0));
+    frames = d.frames.map(s => pxUnB64(s, w * h)); fps = d.fps || fps; cur = Math.min(cur, frames.length - 1); sel = float = null;
+  }
+  let saveT = null;
+  const saveLater = () => { clearTimeout(saveT); saveT = setTimeout(() => store.set('pixel-doc', serialize()), 400); };
+  let pending = []; // pixel changes waiting to go out: [frame, index, color, ...]
+  const flush = () => { if (pending.length) { W.push({ op: 'px', d: pending }); pending = []; } };
+  function setPx(i, c, f = cur) { if (frames[f][i] === c) return; frames[f][i] = c; if (live()) pending.push(f, i, c); }
+  const docChanged = () => { W.push({ doc: serialize() }); saveLater(); };
+  function snap() { undo.push({ w, h, frames: frames.map(f => f.slice()), cur }); if (undo.length > 40) undo.shift(); redo.length = 0; }
+  const restore = s => { w = s.w; h = s.h; frames = s.frames; cur = Math.min(s.cur, frames.length - 1); sel = float = null; fit(false); render(); docChanged(); };
+  function doUndo() { commitFloat(); if (!undo.length) return; redo.push({ w, h, frames: frames.map(f => f.slice()), cur }); restore(undo.pop()); }
+  function doRedo() { if (!redo.length) return; undo.push({ w, h, frames: frames.map(f => f.slice()), cur }); restore(redo.pop()); }
+
+  // drawing helpers
+  const inside = (x, y) => x >= 0 && y >= 0 && x < w && y < h;
+  function plot(x, y, c, dither) { // brush square, mirrored copies, dither skips every other pixel
+    const o = Math.floor((brush - 1) / 2);
+    for (let dy = 0; dy < brush; dy++) for (let dx = 0; dx < brush; dx++) {
+      const px = x - o + dx, py = y - o + dy;
+      for (const [mx, my] of [[px, py], ...(mirrorX ? [[w - 1 - px, py]] : []), ...(mirrorY ? [[px, h - 1 - py]] : []), ...(mirrorX && mirrorY ? [[w - 1 - px, h - 1 - py]] : [])]) {
+        if (!inside(mx, my) || (dither && (mx + my) % 2)) continue;
+        setPx(my * w + mx, c);
+      }
+    }
+  }
+  function line(x0, y0, x1, y1, fn) {
+    const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx + dy;
+    for (;;) { fn(x0, y0); if (x0 === x1 && y0 === y1) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x0 += sx; } if (e2 <= dx) { err += dx; y0 += sy; } }
+  }
+  function shapePixels(kind, x0, y0, x1, y1, fill, fn) {
+    if (kind === 'line') return line(x0, y0, x1, y1, fn);
+    const ax = Math.min(x0, x1), bx = Math.max(x0, x1), ay = Math.min(y0, y1), by = Math.max(y0, y1);
+    if (kind === 'rect') { for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) if (fill || x === ax || x === bx || y === ay || y === by) fn(x, y); return; }
+    const cx = (ax + bx + 1) / 2, cy = (ay + by + 1) / 2, rx = (bx - ax + 1) / 2, ry = (by - ay + 1) / 2;
+    const In = (x, y) => ((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1.0001;
+    for (let y = ay; y <= by; y++) for (let x = ax; x <= bx; x++) if (In(x, y) && (fill || !In(x - 1, y) || !In(x + 1, y) || !In(x, y - 1) || !In(x, y + 1))) fn(x, y);
+  }
+  function floodFill(x, y, c, everywhere) {
+    const f = frame(), target = f[y * w + x];
+    if (target === c) return;
+    if (everywhere) { for (let i = 0; i < f.length; i++) if (f[i] === target) setPx(i, c); return; }
+    const seen = new Uint8Array(w * h), stack = [y * w + x];
+    while (stack.length) {
+      const i = stack.pop(); if (seen[i]) continue; seen[i] = 1;
+      if (f[i] !== target) continue;
+      setPx(i, c);
+      const px = i % w;
+      if (px > 0) stack.push(i - 1); if (px < w - 1) stack.push(i + 1); if (i >= w) stack.push(i - w); if (i < w * (h - 1)) stack.push(i + w);
+    }
+  }
+  // selection
+  function lift() { // turn the selected area into floating pixels that can be moved
+    if (!sel || float) return;
+    snap();
+    const d = new Uint32Array(sel.w * sel.h);
+    for (let y = 0; y < sel.h; y++) for (let x = 0; x < sel.w; x++) { const i = (sel.y + y) * w + sel.x + x; d[y * sel.w + x] = frame()[i]; setPx(i, 0); }
+    float = { x: sel.x, y: sel.y, w: sel.w, h: sel.h, d };
+  }
+  function commitFloat() {
+    if (!float) return;
+    for (let y = 0; y < float.h; y++) for (let x = 0; x < float.w; x++) {
+      const c = float.d[y * float.w + x], px = float.x + x, py = float.y + y;
+      if (c && inside(px, py)) setPx(py * w + px, c);
+    }
+    sel = { x: float.x, y: float.y, w: float.w, h: float.h }; float = null;
+    flush(); saveLater(); render();
+  }
+  const selRegion = () => sel ? sel : { x: 0, y: 0, w, h };
+  function copySel() {
+    if (float) { clip = { w: float.w, h: float.h, d: float.d.slice() }; return; }
+    const r = selRegion(), d = new Uint32Array(r.w * r.h);
+    for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) d[y * r.w + x] = frame()[(r.y + y) * w + r.x + x];
+    clip = { w: r.w, h: r.h, d };
+  }
+  function deleteSel() {
+    if (float) { float = null; sel = null; render(); return; }
+    snap(); const r = selRegion();
+    for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) setPx((r.y + y) * w + r.x + x, 0);
+    flush(); saveLater(); render();
+  }
+  function paste() {
+    if (!clip) return;
+    commitFloat(); snap();
+    const x = sel ? sel.x : 0, y = sel ? sel.y : 0;
+    float = { x, y, w: clip.w, h: clip.h, d: clip.d.slice() }; sel = { x, y, w: clip.w, h: clip.h };
+    setTool('select'); render();
+  }
+  function transform(kind) { // flip/rotate the floating selection, or the whole picture
+    if (sel && !float) lift();
+    if (float) {
+      const { w: fw, h: fh, d } = float, n = new Uint32Array(fw * fh);
+      if (kind === 'rot') { for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) n[x * fh + (fh - 1 - y)] = d[y * fw + x]; float.w = fh; float.h = fw; }
+      else for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) n[y * fw + x] = kind === 'h' ? d[y * fw + fw - 1 - x] : d[(fh - 1 - y) * fw + x];
+      float.d = n; sel = { x: float.x, y: float.y, w: float.w, h: float.h }; render(); return;
+    }
+    snap();
+    if (kind === 'rot') { // all frames turn, and the canvas swaps width and height
+      frames = frames.map(f => { const n = new Uint32Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) n[x * h + (h - 1 - y)] = f[y * w + x]; return n; });
+      [w, h] = [h, w]; fit(false); render(); docChanged(); return;
+    }
+    const f = frame(), n = f.slice();
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) setPx(y * w + x, kind === 'h' ? n[y * w + w - 1 - x] : n[(h - 1 - y) * w + x]);
+    flush(); saveLater(); render();
+  }
+
+  // drawing on screen
+  const toImage = f => { const im = new ImageData(w, h), u = new Uint32Array(im.data.buffer); for (let i = 0; i < f.length; i++) { const c = f[i]; u[i] = ((c & 0xff) << 24 | ((c >>> 8) & 0xff) << 16 | ((c >>> 16) & 0xff) << 8 | (c >>> 24)) >>> 0; } return im; };
+  const tmp = document.createElement('canvas');
+  function drawFrameTo(ctx, f, alpha = 1) { tmp.width = w; tmp.height = h; tmp.getContext('2d').putImageData(toImage(f), 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(tmp, 0, 0); ctx.globalAlpha = 1; }
+  let preview = null; // shape being dragged: list of pixels for the overlay
+  function render() {
+    if (cv.width !== w || cv.height !== h) { [cv, ov].forEach(c => { c.width = w; c.height = h; }); }
+    const W2 = w * zoom, H2 = h * zoom;
+    [cv, ov].forEach(c => { c.style.width = W2 + 'px'; c.style.height = H2 + 'px'; });
+    stage.style.width = W2 + 'px'; stage.style.height = H2 + 'px';
+    g.clearRect(0, 0, w, h);
+    if (onion && frames.length > 1) drawFrameTo(g, frames[(cur - 1 + frames.length) % frames.length], 0.3);
+    drawFrameTo(g, frame());
+    go.clearRect(0, 0, w, h);
+    if (float) { const im = new ImageData(float.w, float.h), u = new Uint32Array(im.data.buffer); float.d.forEach((c, i) => { u[i] = ((c & 0xff) << 24 | ((c >>> 8) & 0xff) << 16 | ((c >>> 16) & 0xff) << 8 | (c >>> 24)) >>> 0; }); tmp.width = float.w; tmp.height = float.h; tmp.getContext('2d').putImageData(im, 0, 0); go.drawImage(tmp, float.x, float.y); }
+    if (preview) { go.fillStyle = preview.c ? pxHex(preview.c) : 'rgba(255,255,255,.7)'; preview.px.forEach(([x, y]) => go.fillRect(x, y, 1, 1)); }
+    drawUi();
+    q('.pxp-dim').textContent = `${w} × ${h}px · frame ${cur + 1}/${frames.length}`;
+    q('.pxp-zoomt').textContent = `${Math.round(zoom * 100)}%`;
+    renderFrames(); drawPreview();
+  }
+  let hover = null;
+  function drawUi() { // grid, selection outline and the brush outline, at screen resolution
+    const W2 = w * zoom, H2 = h * zoom, big = W2 * H2 <= 16e6;
+    ui.style.width = W2 + 'px'; ui.style.height = H2 + 'px';
+    if (!big) { ui.width = ui.height = 0; return; }
+    if (ui.width !== W2 || ui.height !== H2) { ui.width = W2; ui.height = H2; }
+    gu.clearRect(0, 0, W2, H2);
+    if (grid && zoom >= 4) {
+      gu.strokeStyle = 'rgba(0,0,0,.18)'; gu.lineWidth = 1; gu.beginPath();
+      for (let x = 1; x < w; x++) { gu.moveTo(x * zoom + 0.5, 0); gu.lineTo(x * zoom + 0.5, H2); }
+      for (let y = 1; y < h; y++) { gu.moveTo(0, y * zoom + 0.5); gu.lineTo(W2, y * zoom + 0.5); }
+      gu.stroke();
+      if (w % 8 === 0 && h % 8 === 0 && w > 16) { gu.strokeStyle = 'rgba(0,0,0,.32)'; gu.beginPath(); for (let x = 8; x < w; x += 8) { gu.moveTo(x * zoom + 0.5, 0); gu.lineTo(x * zoom + 0.5, H2); } for (let y = 8; y < h; y += 8) { gu.moveTo(0, y * zoom + 0.5); gu.lineTo(W2, y * zoom + 0.5); } gu.stroke(); }
+    }
+    if (mirrorX) { gu.strokeStyle = 'rgba(232,68,90,.8)'; gu.beginPath(); gu.moveTo(W2 / 2, 0); gu.lineTo(W2 / 2, H2); gu.stroke(); }
+    if (mirrorY) { gu.strokeStyle = 'rgba(232,68,90,.8)'; gu.beginPath(); gu.moveTo(0, H2 / 2); gu.lineTo(W2, H2 / 2); gu.stroke(); }
+    const s = float || sel;
+    if (s) {
+      gu.setLineDash([4, 3]); gu.lineDashOffset = -(performance.now() / 60 | 0) % 7;
+      gu.strokeStyle = '#000'; gu.strokeRect(s.x * zoom + 0.5, s.y * zoom + 0.5, s.w * zoom - 1, s.h * zoom - 1);
+      gu.strokeStyle = '#fff'; gu.lineDashOffset += 3.5; gu.strokeRect(s.x * zoom + 0.5, s.y * zoom + 0.5, s.w * zoom - 1, s.h * zoom - 1);
+      gu.setLineDash([]);
+    }
+    if (hover && ['pencil', 'eraser', 'dither'].includes(tool)) {
+      const o = Math.floor((brush - 1) / 2);
+      gu.strokeStyle = 'rgba(255,255,255,.9)'; gu.strokeRect((hover[0] - o) * zoom + 0.5, (hover[1] - o) * zoom + 0.5, brush * zoom - 1, brush * zoom - 1);
+      gu.strokeStyle = 'rgba(0,0,0,.6)'; gu.strokeRect((hover[0] - o) * zoom - 0.5, (hover[1] - o) * zoom - 0.5, brush * zoom + 1, brush * zoom + 1);
+    }
+  }
+  const ants = setInterval(() => { if (sel || float) drawUi(); }, 120); // marching ants
+  function fit(center = true) { // biggest whole-number zoom that shows the whole picture
+    const aw = area.clientWidth - 24, ah = area.clientHeight - 24;
+    if (aw > 0 && ah > 0) zoom = Math.max(1, Math.min(48, Math.floor(Math.min(aw / w, ah / h))));
+    if (center) render();
+  }
+  function setZoom(z, cx, cy) {
+    const r = area.getBoundingClientRect(), ox = (cx ?? r.left + r.width / 2) - r.left, oy = (cy ?? r.top + r.height / 2) - r.top;
+    const px0 = (area.scrollLeft + ox - stage.offsetLeft) / zoom, py0 = (area.scrollTop + oy - stage.offsetTop) / zoom;
+    zoom = Math.max(1, Math.min(64, z)); render();
+    area.scrollLeft = px0 * zoom + stage.offsetLeft - ox; area.scrollTop = py0 * zoom + stage.offsetTop - oy;
+  }
+  const zoomStep = (dir, cx, cy) => { const steps = [1, 2, 3, 4, 6, 8, 10, 12, 16, 20, 24, 32, 40, 48, 64]; const i = steps.findIndex(s => s >= zoom); setZoom(steps[Math.max(0, Math.min(steps.length - 1, (steps[i] === zoom ? i : i - (dir > 0 ? 1 : 0)) + dir))], cx, cy); };
+
+  // frames strip and preview
+  function renderFrames() {
+    const strip = q('.pxp-strip');
+    while (strip.children.length > frames.length) strip.lastChild.remove();
+    while (strip.children.length < frames.length) { const b = el('<button class="pxp-thumb"><canvas></canvas><span></span></button>'); strip.append(b); }
+    [...strip.children].forEach((b, i) => {
+      b.classList.toggle('on', i === cur); b.onclick = () => { commitFloat(); cur = i; render(); };
+      const c = b.firstChild, s = Math.max(1, Math.floor(44 / Math.max(w, h)));
+      c.width = w; c.height = h; c.style.width = w * s + 'px'; c.style.height = h * s + 'px';
+      c.getContext('2d').clearRect(0, 0, w, h); drawFrameTo(c.getContext('2d'), frames[i]);
+      b.lastChild.textContent = i + 1;
+    });
+    q('.pxp-play').textContent = playing ? '■ Stop' : '▶ Play';
+    q('.pxp-onion').classList.toggle('on', onion);
+  }
+  const prev = q('.pxp-prev'); let pf = 0, pt = 0;
+  function drawPreview() {
+    const s = Math.max(1, Math.floor(150 / Math.max(w, h)));
+    prev.width = w; prev.height = h; prev.style.width = w * s + 'px'; prev.style.height = h * s + 'px';
+    const pc = prev.getContext('2d'); pc.clearRect(0, 0, w, h); drawFrameTo(pc, frames[playing ? pf % frames.length : cur]);
+  }
+  const anim = setInterval(() => { if (!playing) return; pt++; if (pt >= Math.max(1, Math.round(60 / fps / (60 / 30)))) { pt = 0; pf = (pf + 1) % frames.length; drawPreview(); } }, 1000 / 30);
+
+  // tool bar
+  const btn = (cls, html, title, fn) => { const b = el(`<button class="${cls}"></button>`); b.innerHTML = html; b.title = title; b.setAttribute('aria-label', title); b.onclick = fn; return b; };
+  const toolBtns = PX_TOOLS.map(([id, icon, title]) => { const b = btn('pt-b', esc(icon), title, () => setTool(id)); b.dataset.t = id; return b; });
+  q('.pxp-set').append(...toolBtns);
+  const sizeBtns = [1, 2, 3].map(n => { const b = btn('pt-b', `<i style="width:${n * 3 + 1}px;height:${n * 3 + 1}px"></i>`, `Brush ${n}px ([ and ])`, () => { brush = n; refresh(); }); b.dataset.s = n; return b; });
+  q('.pxp-sizes').append(...sizeBtns);
+  const optBtns = {
+    mx: btn('pt-b', '⇹', 'Mirror left/right', () => { mirrorX = !mirrorX; refresh(); render(); }),
+    my: btn('pt-b', '⤒', 'Mirror top/bottom', () => { mirrorY = !mirrorY; refresh(); render(); }),
+    fill: btn('pt-b', '■', 'Filled rectangles and ellipses', () => { filled = !filled; refresh(); }),
+    grid: btn('pt-b', '#', 'Pixel grid', () => { grid = !grid; refresh(); render(); }),
+  };
+  q('.pxp-opts').append(...Object.values(optBtns));
+  function setTool(t) { if (t !== 'select') commitFloat(); if (t !== 'select' && !float) sel = null; tool = t; refresh(); render(); }
+  function refresh() {
+    toolBtns.forEach(b => b.classList.toggle('on', b.dataset.t === tool));
+    sizeBtns.forEach(b => b.classList.toggle('on', +b.dataset.s === brush));
+    optBtns.mx.classList.toggle('on', mirrorX); optBtns.my.classList.toggle('on', mirrorY); optBtns.fill.classList.toggle('on', filled); optBtns.grid.classList.toggle('on', grid);
+    const sw = (e, c) => { e.style.background = c ? pxHex(c) : ''; e.classList.toggle('clear', !c); };
+    sw(q('.c1'), c1); sw(q('.c2'), c2);
+    cv.style.cursor = tool === 'select' ? 'move' : tool === 'picker' || tool === 'fill' ? 'pointer' : 'crosshair';
+    ui.style.cursor = cv.style.cursor;
+    const pal = q('.pxp-pal'); pal.replaceChildren(...PX_PALETTES[palName].map(hex => colorBtn(pxPack(hex))));
+    q('.pxp-recent').replaceChildren(...recent.map(colorBtn));
+  }
+  function colorBtn(c) {
+    const b = el('<button class="pxp-pc"></button>'); b.style.background = pxHex(c); b.title = pxHex(c) + ' (left: color 1, right: color 2)';
+    b.onclick = () => { c1 = c; refresh(); }; b.oncontextmenu = e => { e.preventDefault(); c2 = c; refresh(); };
+    return b;
+  }
+  const remember = c => { if (!c || PX_PALETTES[palName].some(h => pxPack(h) === c)) return; recent = [c, ...recent.filter(x => x !== c)].slice(0, 12); };
+  const palSel = q('.pxp-palsel'); palSel.innerHTML = Object.keys(PX_PALETTES).map(n => `<option>${esc(n)}</option>`).join('');
+  palSel.onchange = () => { palName = palSel.value; refresh(); };
+  q('.pxp-custom').oninput = e => { c1 = pxPack(e.target.value); refresh(); };
+  q('.pxp-custom').onchange = () => { remember(c1); refresh(); };
+  q('.pxp-swap').onclick = () => { [c1, c2] = [c2, c1]; refresh(); };
+  q('.pxp-clear-c').onclick = () => { c1 = 0; refresh(); };
+  q('.c1').onclick = () => q('.pxp-custom').click();
+  q('.pxp-fbtns').append(
+    btn('tbtn', '＋ Frame', 'Add an empty frame', () => { commitFloat(); snap(); frames.splice(cur + 1, 0, new Uint32Array(w * h)); cur++; render(); docChanged(); }),
+    btn('tbtn', '⧉ Copy', 'Duplicate this frame', () => { commitFloat(); snap(); frames.splice(cur + 1, 0, frame().slice()); cur++; render(); docChanged(); }),
+    btn('tbtn', '🗑', 'Delete this frame', () => { if (frames.length < 2) return; snap(); frames.splice(cur, 1); cur = Math.min(cur, frames.length - 1); render(); docChanged(); }),
+    btn('tbtn', '◀', 'Move frame left', () => { if (cur < 1) return; snap(); [frames[cur - 1], frames[cur]] = [frames[cur], frames[cur - 1]]; cur--; render(); docChanged(); }),
+    btn('tbtn', '▶', 'Move frame right', () => { if (cur >= frames.length - 1) return; snap(); [frames[cur + 1], frames[cur]] = [frames[cur], frames[cur + 1]]; cur++; render(); docChanged(); }),
+    btn('tbtn pxp-onion', 'Onion skin', 'Show the previous frame faintly', () => { onion = !onion; render(); }),
+    btn('tbtn pxp-play', '▶ Play', 'Play the animation in the preview', () => { playing = !playing; pf = cur; render(); }),
+  );
+  const fpsIn = el('<label class="pxp-fps">FPS <input type="number" min="1" max="30"></label>'); fpsIn.firstElementChild.value = fps;
+  fpsIn.firstElementChild.onchange = e => { fps = Math.max(1, Math.min(30, +e.target.value || 8)); e.target.value = fps; docChanged(); };
+  q('.pxp-fbtns').append(fpsIn);
+
+  // pointer: left draws color 1, right color 2; middle button or Space+drag pans; wheel zooms
+  const at = e => { const r = cv.getBoundingClientRect(); return [Math.floor((e.clientX - r.left) / r.width * w), Math.floor((e.clientY - r.top) / r.height * h)]; };
+  let drag = null, spaceDown = false;
+  ui.addEventListener('contextmenu', e => e.preventDefault());
+  ui.addEventListener('pointerdown', e => {
+    if (e.button === 1 || spaceDown) { drag = { pan: true, x: e.clientX, y: e.clientY, sl: area.scrollLeft, st: area.scrollTop }; ui.setPointerCapture(e.pointerId); return; }
+    if (e.button !== 0 && e.button !== 2) return;
+    const [x, y] = at(e), color = e.button === 2 ? c2 : c1;
+    ui.setPointerCapture(e.pointerId);
+    if (tool === 'picker') { if (inside(x, y)) { const c = frame()[y * w + x]; if (e.button === 2) c2 = c; else c1 = c; remember(c); refresh(); } return; }
+    if (tool === 'select') {
+      if (float && x >= float.x && y >= float.y && x < float.x + float.w && y < float.y + float.h) { drag = { move: true, ox: x - float.x, oy: y - float.y }; return; }
+      if (sel && !float && x >= sel.x && y >= sel.y && x < sel.x + sel.w && y < sel.y + sel.h) { lift(); drag = { move: true, ox: x - float.x, oy: y - float.y }; render(); return; }
+      commitFloat(); sel = null; drag = { select: true, x0: x, y0: y }; render(); return;
+    }
+    if (!inside(x, y) && tool === 'fill') return;
+    snap(); remember(color);
+    if (tool === 'fill') { floodFill(x, y, color, e.shiftKey); flush(); saveLater(); render(); return; }
+    if (['pencil', 'eraser', 'dither'].includes(tool)) {
+      const c = tool === 'eraser' ? 0 : color;
+      drag = { paint: true, lx: x, ly: y, c };
+      plot(x, y, c, tool === 'dither'); render(); return;
+    }
+    drag = { shape: tool, x0: x, y0: y, c: color };
+  });
+  ui.addEventListener('pointermove', e => {
+    const [x, y] = at(e);
+    hover = inside(x, y) ? [x, y] : null;
+    q('.pxp-pos').textContent = hover ? `${x}, ${y}` : '';
+    if (!drag) { drawUi(); return; }
+    if (drag.pan) { area.scrollLeft = drag.sl - (e.clientX - drag.x); area.scrollTop = drag.st - (e.clientY - drag.y); return; }
+    if (drag.paint) { line(drag.lx, drag.ly, x, y, (px, py) => plot(px, py, drag.c, tool === 'dither')); drag.lx = x; drag.ly = y; render(); if (pending.length > 600) flush(); return; }
+    if (drag.move) { float.x = x - drag.ox; float.y = y - drag.oy; sel = { x: float.x, y: float.y, w: float.w, h: float.h }; render(); return; }
+    let x1 = x, y1 = y;
+    const x0 = drag.x0, y0 = drag.y0;
+    if (e.shiftKey && drag.shape) { // straight lines; squares and circles
+      if (drag.shape === 'line') { const dx = x - x0, dy = y - y0, adx = Math.abs(dx), ady = Math.abs(dy); if (adx > 2 * ady) y1 = y0; else if (ady > 2 * adx) x1 = x0; else { const m = Math.max(adx, ady); x1 = x0 + Math.sign(dx) * m; y1 = y0 + Math.sign(dy) * m; } }
+      else { const m = Math.max(Math.abs(x - x0), Math.abs(y - y0)); x1 = x0 + Math.sign(x - x0 || 1) * m; y1 = y0 + Math.sign(y - y0 || 1) * m; }
+    }
+    drag.x1 = x1; drag.y1 = y1;
+    if (drag.select) {
+      const ax = Math.max(0, Math.min(x0, x1)), ay = Math.max(0, Math.min(y0, y1)), bx = Math.min(w - 1, Math.max(x0, x1)), by = Math.min(h - 1, Math.max(y0, y1));
+      sel = bx >= ax && by >= ay ? { x: ax, y: ay, w: bx - ax + 1, h: by - ay + 1 } : null; drawUi(); return;
+    }
+    const px = []; shapePixels(drag.shape, x0, y0, x1, y1, filled, (a, b) => { if (inside(a, b)) px.push([a, b]); });
+    preview = { px, c: drag.c }; render();
+  });
+  const up = () => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    if (d.shape) {
+      preview = null;
+      shapePixels(d.shape, d.x0, d.y0, d.x1 ?? d.x0, d.y1 ?? d.y0, filled, (a, b) => plot(a, b, d.c, false)); // uses the brush size as line width
+    }
+    if (d.select && sel && sel.w * sel.h <= 1 && d.x1 == null) sel = null;
+    flush(); saveLater(); render();
+  };
+  ui.addEventListener('pointerup', up); ui.addEventListener('pointercancel', up);
+  ui.addEventListener('pointerleave', () => { hover = null; drawUi(); });
+  area.addEventListener('wheel', e => { e.preventDefault(); zoomStep(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY); }, { passive: false });
+
+  // keys (only while this window is the active one)
+  const KEYTOOLS = Object.fromEntries(PX_TOOLS.map(t => [t[3], t[0]]));
+  const onKey = e => {
+    if (!W.el.classList.contains('active') || e.target.matches?.('input, select, textarea')) return;
+    const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+    if (e.key === ' ') { spaceDown = e.type === 'keydown'; ui.style.cursor = spaceDown ? 'grab' : cv.style.cursor; e.preventDefault(); return; }
+    if (e.type !== 'keydown') return;
+    if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? doRedo() : doUndo(); }
+    else if (mod && k === 'y') { e.preventDefault(); doRedo(); }
+    else if (mod && k === 'c') { e.preventDefault(); copySel(); }
+    else if (mod && k === 'x') { e.preventDefault(); copySel(); deleteSel(); }
+    else if (mod && k === 'v') { e.preventDefault(); paste(); }
+    else if (mod && k === 'a') { e.preventDefault(); commitFloat(); sel = { x: 0, y: 0, w, h }; setTool('select'); }
+    else if (mod) return;
+    else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteSel(); }
+    else if (e.key === 'Escape') { commitFloat(); sel = null; render(); }
+    else if (e.key === 'Enter') commitFloat();
+    else if (KEYTOOLS[k]) setTool(KEYTOOLS[k]);
+    else if (k === 'x') { [c1, c2] = [c2, c1]; refresh(); }
+    else if (k === '[' || k === ']') { brush = Math.max(1, Math.min(3, brush + (k === ']' ? 1 : -1))); refresh(); }
+    else if (k === '+' || k === '=') zoomStep(1); else if (k === '-') zoomStep(-1);
+    else if (e.key === 'ArrowLeft' || e.key === ',') { commitFloat(); cur = (cur - 1 + frames.length) % frames.length; render(); }
+    else if (e.key === 'ArrowRight' || e.key === '.') { commitFloat(); cur = (cur + 1) % frames.length; render(); }
+  };
+  document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKey);
+
+  // dialogs: new / canvas size / export
+  const dlg = q('.pxp-dlg');
+  function dialog(html, onOk) {
+    dlg.innerHTML = `<form class="pxp-box">${html}<div class="pxp-dbtns"><button type="button" class="okbtn pxp-cancel">Cancel</button><button class="okbtn">OK</button></div></form>`;
+    dlg.hidden = false;
+    const f = dlg.firstChild;
+    f.querySelector('.pxp-cancel').onclick = () => { dlg.hidden = true; };
+    f.onsubmit = e => { e.preventDefault(); if (onOk(f) !== false) dlg.hidden = true; };
+    f.querySelectorAll('[data-wh]').forEach(b => b.onclick = () => { const [a, c] = b.dataset.wh.split('x'); f.w.value = a; f.h.value = c; });
+    const first = f.querySelector('input, select'); if (first) first.focus();
+  }
+  const sizeFields = (a, b) => `<div class="pxp-row">Width <input name="w" type="number" min="1" max="256" value="${a}"> Height <input name="h" type="number" min="1" max="256" value="${b}"></div>`
+    + '<div class="pxp-row">' + [8, 16, 24, 32, 48, 64, 128].map(n => `<button type="button" class="tbtn" data-wh="${n}x${n}">${n}×${n}</button>`).join('') + '</div>';
+  const clampSize = v => Math.max(1, Math.min(256, v | 0 || 32));
+  function newPicture() {
+    dialog('<h3>New picture</h3>' + sizeFields(w, h) + '<p class="dim">This replaces the current picture (Undo brings it back).</p>', f => {
+      snap(); w = clampSize(f.w.value); h = clampSize(f.h.value); frames = [new Uint32Array(w * h)]; cur = 0; sel = float = null;
+      fit(false); render(); docChanged();
+    });
+  }
+  function canvasSize() {
+    dialog('<h3>Canvas size</h3>' + sizeFields(w, h) + '<div class="pxp-row">Keep picture at <select name="anchor"><option value="tl">top left</option><option value="c">center</option></select></div>', f => {
+      const nw = clampSize(f.w.value), nh = clampSize(f.h.value), ox = f.anchor.value === 'c' ? Math.floor((nw - w) / 2) : 0, oy = f.anchor.value === 'c' ? Math.floor((nh - h) / 2) : 0;
+      snap(); commitFloat();
+      frames = frames.map(fr => { const n = new Uint32Array(nw * nh); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const X = x + ox, Y = y + oy; if (X >= 0 && Y >= 0 && X < nw && Y < nh) n[Y * nw + X] = fr[y * w + x]; } return n; });
+      w = nw; h = nh; sel = null; fit(false); render(); docChanged();
+    });
+  }
+  const download = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); };
+  function exportDialog() {
+    commitFloat();
+    dialog('<h3>Export</h3><div class="pxp-row"><label><input type="radio" name="kind" value="png" checked> PNG of this frame</label></div>'
+      + '<div class="pxp-row"><label><input type="radio" name="kind" value="sheet"> Sprite sheet (all frames in a row)</label></div>'
+      + `<div class="pxp-row"><label><input type="radio" name="kind" value="gif"${frames.length > 1 ? '' : ' disabled'}> Animated GIF (${frames.length} frame${frames.length > 1 ? 's' : ''}, ${fps} FPS)</label></div>`
+      + '<div class="pxp-row">Size <select name="scale">' + [1, 2, 4, 8, 16, 32].map(s => `<option value="${s}"${s === 8 ? ' selected' : ''}>${s}× (${w * s} × ${h * s})</option>`).join('') + '</select></div>', f => {
+      const s = +f.scale.value, kind = f.kind.value;
+      if (kind === 'gif') { download(pxGif(frames, w, h, s, Math.round(100 / fps)), 'pixel-art.gif'); return; }
+      const list = kind === 'sheet' ? frames : [frame()], c = document.createElement('canvas');
+      c.width = w * s * list.length; c.height = h * s;
+      const cc = c.getContext('2d'); cc.imageSmoothingEnabled = false;
+      list.forEach((fr, i) => { tmp.width = w; tmp.height = h; tmp.getContext('2d').putImageData(toImage(fr), 0, 0); cc.drawImage(tmp, i * w * s, 0, w * s, h * s); });
+      c.toBlob(b => download(b, kind === 'sheet' ? 'sprite-sheet.png' : 'pixel-art.png'));
+    });
+  }
+  function importImage() { // any picture, squeezed into the canvas size and turned into pixels
+    const inp = el('<input type="file" accept="image/*" hidden>'); document.body.append(inp);
+    inp.onchange = () => {
+      const file = inp.files[0]; inp.remove(); if (!file) return;
+      const im = new Image(); im.onload = () => {
+        dialog(`<h3>Open image</h3><p class="dim">${im.naturalWidth} × ${im.naturalHeight} picture. Pixel size to turn it into:</p>` + sizeFields(Math.min(256, im.naturalWidth > 256 ? 64 : im.naturalWidth), Math.min(256, im.naturalHeight > 256 ? Math.round(64 * im.naturalHeight / im.naturalWidth) : im.naturalHeight)), f => {
+          const nw = clampSize(f.w.value), nh = clampSize(f.h.value), c = document.createElement('canvas'); c.width = nw; c.height = nh;
+          const cc = c.getContext('2d'); cc.imageSmoothingEnabled = nw >= im.naturalWidth; cc.drawImage(im, 0, 0, nw, nh);
+          const d = cc.getImageData(0, 0, nw, nh).data, fr = new Uint32Array(nw * nh);
+          for (let i = 0; i < fr.length; i++) fr[i] = d[i * 4 + 3] < 128 ? 0 : ((d[i * 4] << 24) | (d[i * 4 + 1] << 16) | (d[i * 4 + 2] << 8) | 255) >>> 0;
+          snap(); w = nw; h = nh; frames = [fr]; cur = 0; sel = float = null; fit(false); render(); docChanged();
+          URL.revokeObjectURL(im.src);
+        });
+      };
+      im.src = URL.createObjectURL(file);
+    };
+    inp.click();
+  }
+  menuBar(W, q('.menu'), {
+    File: [['New…', newPicture], ['Open image…', importImage], ['Export (PNG, sprite sheet, GIF)…', exportDialog], ['Close', () => closeWin(W)]],
+    Edit: [['Undo   Ctrl+Z', doUndo], ['Redo   Ctrl+Y', doRedo], ['Cut   Ctrl+X', () => { copySel(); deleteSel(); }], ['Copy   Ctrl+C', copySel], ['Paste   Ctrl+V', paste],
+      ['Select all   Ctrl+A', () => { commitFloat(); sel = { x: 0, y: 0, w, h }; setTool('select'); }], ['Delete   Del', deleteSel], ['Clear frame', () => { commitFloat(); sel = null; deleteSel(); }]],
+    Image: [['Flip left/right', () => transform('h')], ['Flip top/bottom', () => transform('v')], ['Rotate 90°', () => transform('rot')], ['Canvas size…', canvasSize]],
+    View: [['Zoom in   +', () => zoomStep(1)], ['Zoom out   −', () => zoomStep(-1)], ['Fit to window', () => fit()], ['Pixel grid', () => { grid = !grid; refresh(); render(); }, () => grid], ['Onion skin', () => { onion = !onion; render(); }, () => onion]],
+  });
+
+  // multiplayer: pixel changes go out as they're drawn; new pictures, frames, undo and joining send the whole thing
+  shareState(W, () => ({ doc: serialize() }), d => {
+    if (d.doc) { loadDoc(d.doc); fit(false); render(); saveLater(); }
+    else if (d.op === 'px' && Array.isArray(d.d)) { for (let k = 0; k + 2 < d.d.length; k += 3) { const f = frames[d.d[k]]; if (f && d.d[k + 1] < f.length) f[d.d[k + 1]] = d.d[k + 2] >>> 0; } render(); saveLater(); }
+  });
+  const prevClose = W.onClose;
+  W.onClose = () => { prevClose && prevClose(); flush(); store.set('pixel-doc', serialize()); clearInterval(ants); clearInterval(anim); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); pxWin = null; };
+  pxWin = W;
+  loadDoc(store.get('pixel-doc', null));
+  refresh();
+  requestAnimationFrame(() => { fit(); });
+  render();
+  return W;
+}
+
 /* ---------- desktop ---------- */
 // Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
 // and drag them to any cell; the layout is remembered in their browser.
@@ -2715,7 +3215,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'snake', 'solitaire', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

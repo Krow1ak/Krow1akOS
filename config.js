@@ -36,6 +36,7 @@ const ASSETS = {
     minesweeper: 'assets/icons/minesweeper.png',
     wordle:      'assets/icons/wordle.png',
     paint:       'assets/icons/paint.png',
+    pixelpaint:  'assets/icons/pixelpaint.png',
     pinball:     'assets/icons/pinball.png',
     snake:       'assets/icons/snake.png',
     solitaire:   'assets/icons/solitaire.png',
@@ -167,6 +168,7 @@ const BROWSER = {
    minesweeper()                           the Minesweeper game (Game > Daily challenge for the daily board)
    wordle()                                the daily Wordle
    paint()                                 Paint
+   pixelPaint()                            Pixel Paint (pixel art, animation frames, GIF export)
    pinball()                               Pinball
    snake()                                 Snake
    solitaire()                             Solitaire (Klondike; Game > Draw one / Draw three)
@@ -220,6 +222,7 @@ const MUSIC = folder('Music', [
 const MINESWEEPER = minesweeper();
 const WORDLE = wordle();
 const PAINT = paint();
+const PIXEL_PAINT = pixelPaint();
 const PINBALL = pinball();
 const SNAKE = snake();
 const SOLITAIRE = solitaire();
@@ -229,7 +232,7 @@ const CHECKERS = checkers();
 const CHESS = chess();
 const G2048 = game2048();
 const SUDOKU = sudoku();
-const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT]);
+const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
 
 const BROWSER_APP = browser();
 
@@ -256,6 +259,7 @@ function video(name, src, opts = {}) { return { name, type: 'video', src, ...opt
 function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweeper', ...opts }; }
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
+function pixelPaint(opts = {}) { return { name: 'Pixel Paint', type: 'pixelpaint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
 function snake(opts = {}) { return { name: 'Snake', type: 'snake', ...opts }; }
 function solitaire(opts = {}) { return { name: 'Solitaire', type: 'solitaire', ...opts }; }

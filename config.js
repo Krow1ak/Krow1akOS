@@ -76,6 +76,7 @@ const LOGIN_SCREEN = {
   enabled:     true,
   hint:        'Type any password and press Enter',
   welcomeTime: 1300,
+  eggPassword: 'egg',   // a secret: this password shows the tree (assets/egg/) instead of logging in. '' = off
 };
 
 /* ---------- WINDOW LOOK ----------

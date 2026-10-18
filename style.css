@@ -489,3 +489,7 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .lg-brand{position:absolute;bottom:28px;left:0;right:0;text-align:center;font:300 18px var(--font-ui);letter-spacing:1px;opacity:.7;text-shadow:0 1px 4px #000}
 @media (prefers-reduced-motion:reduce){.lg-wait i{animation:none}}
 .lg-row[hidden],.lg-hint[hidden]{display:none}
+
+/* secret tree */
+#egg{position:fixed;inset:0;z-index:99995;background:#000;display:grid;place-items:center;cursor:pointer}
+#egg canvas{width:100vw;height:100vh;object-fit:contain;image-rendering:pixelated;display:block}

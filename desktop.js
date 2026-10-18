@@ -55,11 +55,42 @@ if (LOGIN_SCREEN.enabled) {
   login.querySelector('.lg-hint').textContent = LOGIN_SCREEN.hint || '';
   login.onsubmit = e => {
     e.preventDefault();
+    const pw = login.querySelector('.lg-pw');
+    if (LOGIN_SCREEN.eggPassword && pw.value.trim().toLowerCase() === LOGIN_SCREEN.eggPassword.toLowerCase()) { pw.value = ''; return showEgg(); }
     login.querySelector('.lg-row').hidden = true; login.querySelector('.lg-hint').hidden = true;
     login.querySelector('.lg-wait').hidden = false;
     setTimeout(() => { login.classList.add('out'); setTimeout(() => login.remove(), 500); }, LOGIN_SCREEN.welcomeTime ?? 1300);
   };
 } else login.remove();
+// the secret password: a dark screen with a swaying three-layer tree (click or Esc goes back)
+function showEgg() {
+  const egg = el('<div id="egg"><canvas width="960" height="540" aria-label="A swaying tree"></canvas></div>');
+  document.body.append(egg);
+  const cv = egg.querySelector('canvas'), g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const load = src => new Promise(ok => { const im = new Image(); im.onload = () => ok(im); im.onerror = () => ok(null); im.src = src; });
+  let raf = 0;
+  Promise.all(['bg', 'tree_1', 'tree_2', 'tree_3'].map(n => load(`assets/egg/${n}.png`))).then(([bg, t1, t2, t3]) => {
+    const S = 2, t0 = performance.now();
+    const draw = (im, x, y) => { if (im) g.drawImage(im, Math.round(x), Math.round(y), im.width * S, im.height * S); };
+    const frame = now => {
+      const siner = (now - t0) / 1000 * 30; // GameMaker steps at 30 a second
+      g.fillStyle = '#000'; g.fillRect(0, 0, 960, 540);
+      if (bg) g.drawImage(bg, 0, 0, 960, 540);
+      const w = (t1 || t2 || t3 || { width: 105 }).width * S, h = (t1 || t2 || t3 || { height: 91 }).height * S;
+      const x = (960 - w) / 2, y = (540 - h) / 2;
+      draw(t1, x, y);
+      draw(t2, x + Math.sin(siner / 12) * 2, y + Math.cos(siner / 20) * 2);
+      draw(t3, x + Math.sin(siner / 14) * 1, y + Math.cos(siner / 24) * 1);
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+  });
+  const close = () => { cancelAnimationFrame(raf); egg.remove(); removeEventListener('keydown', onKey, true); focusLogin(); };
+  const onKey = e => { if (e.key === 'Escape') { e.preventDefault(); close(); } };
+  egg.addEventListener('click', close);
+  addEventListener('keydown', onKey, true);
+}
 const focusLogin = () => { if (login.isConnected) login.querySelector('.lg-pw').focus(); };
 
 /* ---------- loading screen ---------- */

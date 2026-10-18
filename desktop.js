@@ -207,13 +207,18 @@ function toggleMax(W) {
   if (W.el.classList.toggle('max')) { W.prev = [s.left, s.top, s.width, s.height]; Object.assign(s, { left: '0px', top: '0px', width: '100%', height: 'calc(100% - 40px)' }); }
   else if (W.prev) [s.left, s.top, s.width, s.height] = W.prev;
 }
+// Each person has their own active window: someone else opening or clicking a window never takes yours
+// (it's outlined in their color instead), so two people can use two windows at once.
 function focusWin(W) {
-  if (W.sid && (!W.el.classList.contains('active') || W.el.classList.contains('min'))) mpSend({ t: 'focus', sid: W.sid });
-  wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); }); W.el.classList.remove('min'); W.el.classList.add('active'); W.tk.classList.add('on'); W.el.style.zIndex = ++z; }
+  if (mp.remote) { W.el.style.zIndex = ++z; return; }
+  const was = W.el.classList.contains('active') && !W.el.classList.contains('min');
+  wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); }); W.el.classList.remove('min'); W.el.classList.add('active'); W.tk.classList.add('on'); W.el.style.zIndex = ++z;
+  if (!was) mpSend({ t: 'focus', sid: W.sid || null });
+}
 function focusTop() {
   wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); });
   const top = wins.filter(w => !w.el.classList.contains('min')).sort((a, b) => b.el.style.zIndex - a.el.style.zIndex)[0];
-  if (top) focusWin(top);
+  if (top) { const was = mp.remote; mp.remote = false; focusWin(top); mp.remote = was; } // picking my next window is my own action
 }
 /* ---------- multiplayer: shared windows ---------- */
 // Every window opened from a file or app gets a shared id (sid). While in a room, opening, moving,
@@ -230,7 +235,7 @@ function track(spec, W) {
   if (!W || W.sid) return W;
   const inc = mp.incoming;
   W.sid = inc ? inc.sid : `${mp.self}-${++sidN}`; W.owner = inc ? inc.owner : mp.self; W.spec = spec;
-  if (!inc) mpSend({ t: 'open', ...winInfo(W) });
+  if (!inc) { mpSend({ t: 'open', ...winInfo(W) }); if (W.el.classList.contains('active')) mpSend({ t: 'focus', sid: W.sid }); }
   return W;
 }
 // apps call this to take part: get() returns their state, set() shows a state sent by someone else
@@ -245,6 +250,18 @@ function leaderOf(W) { // the opener, or whoever is first by id once the opener 
   return ids.includes(W.owner) ? W.owner : ids.sort()[0];
 }
 const isLead = W => leaderOf(W) === mp.self;
+// a window is in use if it's my active window or someone in the room is in it (Snake and Pinball keep running)
+const inUse = W => W.el.classList.contains('active') || (live() && [...mp.peers.values()].some(p => p.focus === W.sid));
+function paintFocus() { // outline the windows other people are in, in their color
+  wins.forEach(w => {
+    const here = w.sid ? [...mp.peers.values()].filter(p => p.focus === w.sid) : [];
+    w.el.classList.toggle('peer-on', here.length > 0);
+    if (here.length) w.el.style.setProperty('--pc', here[0].color);
+    let tag = w.el.querySelector('.who');
+    if (here.length && !tag) { tag = el('<span class="who"></span>'); w.el.querySelector('.ttl').after(tag); }
+    if (tag) { tag.hidden = !here.length; tag.textContent = here.map(p => p.name).join(', '); if (here.length) tag.style.background = here[0].color; }
+  });
+}
 const sendInput = (W, d) => { if (W.sid) mpSend({ t: 'in', sid: W.sid, d }); };
 function winInfo(W) {
   const s = W.el.style, max = W.el.classList.contains('max'), r = max && W.prev ? W.prev : [s.left, s.top, s.width, s.height];
@@ -276,9 +293,10 @@ function openRemote(m) {
   asRemote(() => {
     setRect(W, m.r);
     if (m.max !== W.el.classList.contains('max')) toggleMax(W);
-    if (m.min) { W.el.classList.add('min'); focusTop(); }
+    if (m.min) W.el.classList.add('min');
   });
   if (m.st && W.setState) W.setState(m.st);
+  paintFocus();
 }
 // selections: mine are sent as they change, other people's show outlined in their color
 const lastSel = {};
@@ -303,7 +321,12 @@ function paintSel() {
     if (root) keys.forEach(k => { const e = root.querySelector(`[data-k="${CSS.escape(k)}"]`); if (e) { e.classList.add('rsel'); e.style.setProperty('--rc', p.color); } });
   }));
 }
-function closeWin(W) { if (W.sid) mpSend({ t: 'close', sid: W.sid }); W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1); focusTop(); }
+function closeWin(W) {
+  const wasActive = W.el.classList.contains('active');
+  if (W.sid) mpSend({ t: 'close', sid: W.sid });
+  W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1);
+  if (wasActive || !mp.remote) focusTop();
+}
 
 /* ---------- "you are not him" ---------- */
 let msgWin = null;
@@ -1431,7 +1454,7 @@ function openPinball() {
     let msg = '', info = `High score ${best}`;
     if (over) msg = 'Game Over\nSpace to play again';
     else if (paused) msg = 'Game Paused\nF3 to Resume';
-    else if (!W.el.classList.contains('active')) msg = 'Game Paused\nClick to Resume';
+    else if (!inUse(W)) msg = 'Game Paused\nClick to Resume';
     else if (ball.onPlunger) msg = charging ? 'Launch!' : 'Hold Space\nto launch';
     else msg = 'Mission in\nprogress';
     if (panel.msg.textContent !== msg) panel.msg.textContent = msg;
@@ -1454,7 +1477,7 @@ function openPinball() {
   })();
   function frame(t) {
     const dt = Math.min(0.033, (t - last) / 1000 || 0); last = t;
-    if (W.el.classList.contains('active') && !over && !paused && isLead(W)) {
+    if (inUse(W) && !over && !paused && isLead(W)) {
       if (charging && ball.onPlunger) charge = Math.min(1, charge + dt * 1.2);
       for (let k = 0; k < 8; k++) step(dt / 8);
       bumpers.forEach(b => { b.flash = Math.max(0, b.flash - dt); });
@@ -1579,7 +1602,7 @@ function openSnake() {
     if (state === 'over') msg = snake.length === N * N ? 'You win! · Space or tap' : 'GAME OVER · Space or tap';
     else if (state === 'ready') msg = 'Press an arrow key or swipe';
     else if (state === 'paused') msg = 'Paused · P or tap to resume';
-    else if (!W.el.classList.contains('active')) msg = 'Paused · click to play';
+    else if (!inUse(W)) msg = 'Paused · click to play';
     if (msg) {
       g.fillStyle = '#00000099'; g.fillRect(40, S / 2 - 22, S - 80, 40);
       g.fillStyle = '#fff'; g.font = 'bold 16px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(msg, S / 2, S / 2 + 4);
@@ -1587,7 +1610,7 @@ function openSnake() {
   }
   function frame(t) {
     const dt = Math.min(100, t - last || 0); last = t;
-    if (state === 'playing' && W.el.classList.contains('active') && isLead(W)) {
+    if (state === 'playing' && inUse(W) && isLead(W)) {
       acc += dt;
       while (acc >= speed() && state === 'playing') { acc -= speed(); step(); }
     }
@@ -2930,7 +2953,7 @@ async function joinRoom(code) {
   room.onPeerJoin = peerId => hello(peerId);
   room.onPeerLeave = peerId => {
     const p = mp.peers.get(peerId); if (!p) return;
-    p.cur.remove(); if (p.box) p.box.remove(); mp.peers.delete(peerId); paintSel(); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
+    p.cur.remove(); if (p.box) p.box.remove(); mp.peers.delete(peerId); paintSel(); paintFocus(); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
   };
   history.replaceState(null, '', '#room=' + roomCode);
   refreshMp();
@@ -2989,10 +3012,14 @@ function receive(m, from) {
       return;
     }
     if (m.t === 'open') return openRemote(m);
+    if (m.t === 'focus') {
+      p.focus = typeof m.sid === 'string' ? m.sid : null;
+      if (W && W.el.classList.contains('min')) W.el.classList.remove('min'); // they brought it back from the taskbar
+      return paintFocus();
+    }
     if (!W) return;
     if (m.t === 'close') closeWin(W);
-    else if (m.t === 'focus') focusWin(W);
-    else if (m.t === 'min') { W.el.classList.add('min'); focusTop(); }
+    else if (m.t === 'min') { const a = W.el.classList.contains('active'); W.el.classList.add('min'); if (a) focusTop(); }
     else if (m.t === 'max') { if (m.on !== W.el.classList.contains('max')) toggleMax(W); }
     else if (m.t === 'rect') setRect(W, m.r);
     else if (m.t === 'app' && W.setState) W.setState(m.d);

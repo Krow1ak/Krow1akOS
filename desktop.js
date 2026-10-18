@@ -78,7 +78,7 @@ function showEgg() {
       g.fillStyle = '#000'; g.fillRect(0, 0, 960, 540);
       if (bg) g.drawImage(bg, 0, 0, 960, 540);
       const w = (t1 || t2 || t3 || { width: 105 }).width * S, h = (t1 || t2 || t3 || { height: 91 }).height * S;
-      const x = (960 - w) / 2, y = (540 - h) / 2;
+      const x = (960 - w) / 2, y = (540 - h) / 2 - h / 2; // centred, then up by half the tree's height
       draw(t1, x, y);
       draw(t2, x + Math.sin(siner / 12) * 2, y + Math.cos(siner / 20) * 2);
       draw(t3, x + Math.sin(siner / 14) * 1, y + Math.cos(siner / 24) * 1);

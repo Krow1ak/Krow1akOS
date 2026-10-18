@@ -82,7 +82,7 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
   win.addEventListener('pointerdown', () => focusWin(W));
   win.querySelector('.cls').onclick = () => closeWin(W);
   if (!noMax) {
-    win.querySelector('.mn').onclick = e => { e.stopPropagation(); win.classList.add('min'); focusTop(); };
+    win.querySelector('.mn').onclick = e => { e.stopPropagation(); if (W.sid) mpSend({ t: 'min', sid: W.sid }); win.classList.add('min'); focusTop(); };
     win.querySelector('.mx').onclick = () => toggleMax(W);
   }
   tk.onclick = () => {
@@ -96,24 +96,97 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
     if (e.target.closest('.caps') || innerWidth <= 640) return;
     if (win.classList.contains('max')) { const r = e.clientX / innerWidth; toggleMax(W); win.style.left = (e.clientX - win.offsetWidth * r) + 'px'; win.style.top = '0px'; }
     const ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop; tb.setPointerCapture(e.pointerId);
-    const mv = ev => { win.style.left = Math.min(innerWidth - 60, Math.max(60 - win.offsetWidth, ev.clientX - ox)) + 'px'; win.style.top = Math.min(innerHeight - 80, Math.max(0, ev.clientY - oy)) + 'px'; };
-    const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); };
+    let sent = 0;
+    const tell = () => { if (W.sid) { sent = performance.now(); mpSend({ t: 'mv', sid: W.sid, x: win.offsetLeft, y: win.offsetTop }); } };
+    const mv = ev => {
+      win.style.left = Math.min(innerWidth - 60, Math.max(60 - win.offsetWidth, ev.clientX - ox)) + 'px'; win.style.top = Math.min(innerHeight - 80, Math.max(0, ev.clientY - oy)) + 'px';
+      if (performance.now() - sent > 40) tell();
+    };
+    const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); tell(); };
     tb.addEventListener('pointermove', mv); tb.addEventListener('pointerup', up);
   });
   focusWin(W); return W;
 }
 function toggleMax(W) {
   const s = W.el.style;
+  if (W.sid) mpSend({ t: 'max', sid: W.sid, on: !W.el.classList.contains('max') });
   if (W.el.classList.toggle('max')) { W.prev = [s.left, s.top, s.width, s.height]; Object.assign(s, { left: '0px', top: '0px', width: '100%', height: 'calc(100% - 40px)' }); }
   else if (W.prev) [s.left, s.top, s.width, s.height] = W.prev;
 }
-function focusWin(W) { wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); }); W.el.classList.remove('min'); W.el.classList.add('active'); W.tk.classList.add('on'); W.el.style.zIndex = ++z; }
+function focusWin(W) {
+  if (W.sid && (!W.el.classList.contains('active') || W.el.classList.contains('min'))) mpSend({ t: 'focus', sid: W.sid });
+  wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); }); W.el.classList.remove('min'); W.el.classList.add('active'); W.tk.classList.add('on'); W.el.style.zIndex = ++z; }
 function focusTop() {
   wins.forEach(o => { o.el.classList.remove('active'); o.tk.classList.remove('on'); });
   const top = wins.filter(w => !w.el.classList.contains('min')).sort((a, b) => b.el.style.zIndex - a.el.style.zIndex)[0];
   if (top) focusWin(top);
 }
-function closeWin(W) { W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1); focusTop(); }
+/* ---------- multiplayer: shared windows ---------- */
+// Every window opened from a file or app gets a shared id (sid). While in a room, opening, moving,
+// focusing, minimizing, maximizing and closing it is sent to the others, and apps send their state.
+const mp = { self: Math.random().toString(36).slice(2, 10), send: null, remote: false, incoming: null, peers: new Map() };
+const live = () => !!mp.send;
+const mpSend = (m, to) => { if (mp.send && !mp.remote) mp.send(m, to); };
+function asRemote(fn) { const was = mp.remote; mp.remote = true; try { return fn(); } finally { mp.remote = was; } }
+const nodeKeys = new Map(), keyNodes = new Map(); // node <-> its place in the tree, the same on every computer
+(function walk(n, k) { if (nodeKeys.has(n)) return; nodeKeys.set(n, k); keyNodes.set(k, n); (n.children || []).forEach((c, i) => walk(c, k + '/' + i)); })(desktop, '');
+const nodeKey = n => n ? nodeKeys.get(n) ?? null : null;
+let sidN = 0;
+function track(spec, W) {
+  if (!W || W.sid) return W;
+  const inc = mp.incoming;
+  W.sid = inc ? inc.sid : `${mp.self}-${++sidN}`; W.owner = inc ? inc.owner : mp.self; W.spec = spec;
+  if (!inc) mpSend({ t: 'open', ...winInfo(W) });
+  return W;
+}
+// apps call this to take part: get() returns their state, set() shows a state sent by someone else
+function shareState(W, get, set) {
+  W.getState = get; W.setState = d => asRemote(() => set(d));
+  W.push = (d = get()) => { if (W.sid) mpSend({ t: 'app', sid: W.sid, d }); };
+}
+// games that run on one computer (Snake, Pinball): the opener runs it, the others send their keys
+function leaderOf(W) { // the opener, or whoever is first by id once the opener has left
+  if (!live()) return mp.self;
+  const ids = [mp.self, ...[...mp.peers.values()].map(p => p.id)];
+  return ids.includes(W.owner) ? W.owner : ids.sort()[0];
+}
+const isLead = W => leaderOf(W) === mp.self;
+const sendInput = (W, d) => { if (W.sid) mpSend({ t: 'in', sid: W.sid, d }); };
+function winInfo(W) {
+  const s = W.el.style, max = W.el.classList.contains('max'), r = max && W.prev ? W.prev : [s.left, s.top, s.width, s.height];
+  return { sid: W.sid, owner: W.owner, spec: W.spec, r: r.map(v => parseFloat(v)), max, min: W.el.classList.contains('min'), st: W.getState ? W.getState() : null };
+}
+const bySid = sid => wins.find(w => w.sid === sid);
+function setRect(W, [x, y, w, h]) {
+  if (W.el.classList.contains('max')) { W.prev = [x + 'px', y + 'px', w + 'px', h + 'px']; return; }
+  w = Math.min(w, innerWidth - 20); h = Math.min(h, innerHeight - 60);
+  Object.assign(W.el.style, { width: w + 'px', height: h + 'px',
+    left: Math.max(60 - w, Math.min(innerWidth - 60, x)) + 'px', top: Math.max(0, Math.min(innerHeight - 80, y)) + 'px' });
+}
+function reopen(spec) {
+  const n = keyNodes.get(spec.n), f = spec.f != null ? keyNodes.get(spec.f) : undefined;
+  if (!n) return null;
+  if (spec.k === 'show') return track(spec, openViewer(n, f, true));
+  return openNode(n, f);
+}
+function openRemote(m) {
+  if (bySid(m.sid)) return;
+  mp.incoming = { sid: m.sid, owner: m.owner };
+  let W;
+  try { W = asRemote(() => reopen(m.spec)); } finally { mp.incoming = null; }
+  if (!W) return;
+  if (W.sid !== m.sid) { // both opened the same one-of-a-kind app (Pinball, Music Player...): keep one id
+    if (m.sid > W.sid) return;
+    W.sid = m.sid; W.owner = m.owner;
+  }
+  asRemote(() => {
+    setRect(W, m.r);
+    if (m.max !== W.el.classList.contains('max')) toggleMax(W);
+    if (m.min) { W.el.classList.add('min'); focusTop(); }
+  });
+  if (m.st && W.setState) W.setState(m.st);
+}
+function closeWin(W) { if (W.sid) mpSend({ t: 'close', sid: W.sid }); W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1); focusTop(); }
 
 /* ---------- "you are not him" ---------- */
 let msgWin = null;
@@ -128,7 +201,8 @@ function notHim() {
 }
 
 /* ---------- open ---------- */
-function openNode(n, folder) {
+function openNode(n, folder) { return track({ k: 'node', n: nodeKey(n), f: nodeKey(folder) }, openApp(n, folder)); }
+function openApp(n, folder) {
   if (isFolder(n)) return openExplorer(n);
   if (n.type === 'txt') return openNotepad(n);
   if (n.type === 'img') return openViewer(n, folder || parentOf(n) || desktop);
@@ -187,7 +261,7 @@ function openExplorer(start) {
     if (n.art) {
       tb('Add pictures', notHim);
       const pics = n.children.filter(c => c.type === 'img');
-      if (pics.length) tb('Slide show', () => openViewer(pics[0], n, true));
+      if (pics.length) tb('Slide show', () => track({ k: 'show', n: nodeKey(pics[0]), f: nodeKey(n) }, openViewer(pics[0], n, true)));
     }
     if (n.type === 'bin' && n.children.length) tb('Empty the Recycle Bin', notHim);
     tb('Delete', notHim);
@@ -205,6 +279,7 @@ function openExplorer(start) {
       files.append(item);
     });
     st.sel = null; details(null);
+    W.push();
   }
   function open(c) { if (isFolder(c)) go(c); else openNode(c, cur()); }
   function details(c) {
@@ -212,6 +287,7 @@ function openExplorer(start) {
     if (!c) { d.innerHTML = `<span class="ic">${img(iconSrc(n))}</span><span>${n.children.length} item${n.children.length === 1 ? '' : 's'}</span>`; return; }
     d.innerHTML = `<span class="ic">${img(iconSrc(c))}</span><span><b>${esc(c.name)}</b><br><span class="dim">${typeName(c)}</span></span>`;
   }
+  shareState(W, () => ({ f: nodeKey(cur()) }), d => { const f = keyNodes.get(d.f); if (f && f !== cur()) go(f); });
   render(); return W;
 }
 
@@ -277,7 +353,7 @@ function openViewer(n, folder, auto) {
       left: Math.max(10, Math.min(innerWidth - w - 10, W.el.offsetLeft + (W.el.offsetWidth - w) / 2)) + 'px',
       top: Math.max(8, Math.min(innerHeight - 40 - h - 8, W.el.offsetTop + (W.el.offsetHeight - h) / 2)) + 'px' });
   }, { once: true });
-  const show = () => { const l = list(); if (!l.length) return; i = (i + l.length) % l.length; view.src = l[i].src; view.alt = l[i].name; view.classList.toggle('px', !!l[i].pixel); W.setTitle(`${l[i].name} - Photo Viewer`); W.body.querySelector('.pvname').textContent = `${i + 1} of ${l.length}`; };
+  const show = () => { const l = list(); if (!l.length) return; i = (i + l.length) % l.length; view.src = l[i].src; view.alt = l[i].name; view.classList.toggle('px', !!l[i].pixel); W.setTitle(`${l[i].name} - Photo Viewer`); W.body.querySelector('.pvname').textContent = `${i + 1} of ${l.length}`; W.push(); };
   W.body.querySelector('.pr').onclick = () => { i--; show(); };
   W.body.querySelector('.nx').onclick = () => { i++; show(); };
   const pl = W.body.querySelector('.pl');
@@ -285,9 +361,20 @@ function openViewer(n, folder, auto) {
     if (timer) { clearInterval(timer); timer = null; pl.innerHTML = img(U.play, ''); }
     else { timer = setInterval(() => { i++; show(); }, 2200); pl.innerHTML = img(U.pause, ''); }
   };
-  pl.onclick = toggle; W.onClose = () => clearInterval(timer);
+  pl.onclick = () => { toggle(); W.push(); }; W.onClose = () => clearInterval(timer);
+  shareState(W, () => ({ i, play: !!timer }), d => { if (d.i !== i) { i = d.i; show(); } if (d.play !== !!timer) toggle(); });
   W.el.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') { i--; show(); } if (e.key === 'ArrowRight') { i++; show(); } });
   show(); if (auto) toggle(); return W;
+}
+
+// video and music: play, pause and jumps follow whoever did them last
+function shareMedia(W, m, getItem, setItem) {
+  shareState(W, () => ({ k: getItem(), t: m.currentTime || 0, p: m.paused }), d => {
+    setItem(d.k);
+    if (Math.abs((m.currentTime || 0) - d.t) > 0.7) m.currentTime = d.t;
+    if (d.p && !m.paused) m.pause(); else if (!d.p && m.paused) m.play().catch(() => {});
+  });
+  ['play', 'pause', 'seeked'].forEach(ev => m.addEventListener(ev, () => W.push()));
 }
 
 function openVideo(n) {
@@ -299,6 +386,7 @@ function openVideo(n) {
   v.onerror = () => { const e = el('<div class="vp-err"></div>'); e.textContent = `Couldn't play ${n.src}`; W.body.querySelector('.vp').replaceChildren(e); };
   v.src = n.src;
   W.onClose = () => { v.pause(); v.removeAttribute('src'); v.load(); };
+  shareMedia(W, v, () => null, () => {});
   return W;
 }
 
@@ -346,7 +434,7 @@ function openMinesweeper() {
   const q = sel => W.body.querySelector(sel);
   const grid = q('.ms-grid'), face = q('.ms-face'), ledLeft = q('.ms-left'), ledTime = q('.ms-time'), modeEl = q('.ms-mode'), note = q('.ms-note');
   const FACE = { ok: '🙂', press: '😮', win: '😎', lose: '😵' };
-  let level = 'Beginner', daily = false, today = '', cols, rows, mines, cells, started, over, opened, flags, t0 = 0, timer = null;
+  let level = 'Beginner', daily = false, today = '', cols, rows, mines, cells, started, over, opened, flags, t0 = 0, timer = null, boom = -1;
   const led = n => String(Math.max(-99, Math.min(999, n))).padStart(3, '0');
   const around = i => {
     const x = i % cols, y = (i / cols) | 0, out = [];
@@ -361,7 +449,7 @@ function openMinesweeper() {
 
   function newGame(lv = level, isDaily = daily) {
     level = lv; daily = isDaily; [cols, rows, mines] = MS_LEVELS[level];
-    stopTimer(); started = over = false; opened = flags = 0;
+    stopTimer(); started = over = false; opened = flags = 0; boom = -1;
     cells = Array.from({ length: cols * rows }, () => ({ mine: false, open: false, flag: false, n: 0 }));
     grid.style.gridTemplateColumns = `repeat(${cols}, ${MS_CELL}px)`;
     grid.replaceChildren(...cells.map((_, i) => { const c = el('<div class="ms-c" role="gridcell"></div>'); c.dataset.i = i; return c; }));
@@ -381,6 +469,7 @@ function openMinesweeper() {
       } else flood(startCell);
     } else modeEl.textContent = 'Free play';
     fitWindow();
+    if (W.push) W.push();
   }
   function showNote(r) {
     note.hidden = false; note.replaceChildren();
@@ -426,7 +515,10 @@ function openMinesweeper() {
   function begin(i) {
     started = true;
     if (!daily) layMines(i);
-    t0 = performance.now();
+    startClock(performance.now());
+  }
+  function startClock(from) {
+    t0 = from; stopTimer();
     timer = setInterval(() => { ledTime.textContent = led(Math.floor((performance.now() - t0) / 1000) + 1); }, 250);
     ledTime.textContent = led(1);
   }
@@ -466,7 +558,7 @@ function openMinesweeper() {
       if (c.mine && !c.flag) { c.open = true; draw(j); }
       else if (c.flag && !c.mine) { grid.children[j].textContent = '❌'; }
     });
-    grid.children[i].classList.add('boom');
+    grid.children[i].classList.add('boom'); boom = i;
   }
   function win() {
     over = true; stopTimer(); face.textContent = FACE.win;
@@ -479,12 +571,28 @@ function openMinesweeper() {
   let hold = null, held = false;
   const cellOf = e => { const d = e.target.closest('.ms-c'); return d ? +d.dataset.i : -1; };
   grid.addEventListener('contextmenu', e => e.preventDefault());
+  // the board is shared: whoever clicks sends the whole board (mines included) to the others
+  shareState(W, () => ({ level, daily, today, over, started, boom, el: started ? performance.now() - t0 : 0,
+    c: cells.map(c => (c.mine ? 1 : 0) | (c.open ? 2 : 0) | (c.flag ? 4 : 0)) }), d => {
+    if (d.level !== level || cells.length !== d.c.length) newGame(d.level, false);
+    daily = d.daily; today = d.today; started = d.started; over = d.over; boom = d.boom;
+    note.hidden = true; modeEl.textContent = daily ? `Daily challenge · ${level} · ${today}` : 'Free play';
+    cells.forEach((c, i) => { const v = d.c[i]; c.mine = !!(v & 1); c.open = !!(v & 2); c.flag = !!(v & 4); });
+    cells.forEach((c, i) => { c.n = around(i).filter(j => cells[j].mine).length; draw(i); });
+    opened = cells.filter(c => c.open && !c.mine).length; flags = cells.filter(c => c.flag).length;
+    ledLeft.textContent = led(mines - flags);
+    const won = over && boom < 0;
+    face.textContent = won ? FACE.win : over ? FACE.lose : FACE.ok;
+    if (over && !won) cells.forEach((c, j) => { if (c.flag && !c.mine) grid.children[j].textContent = '❌'; });
+    if (boom >= 0) grid.children[boom].classList.add('boom');
+    if (started && !over) startClock(performance.now() - d.el); else { stopTimer(); ledTime.textContent = led(Math.ceil(d.el / 1000)); }
+  });
   grid.addEventListener('pointerdown', e => {
     const i = cellOf(e); if (i < 0 || over) return;
-    if (e.button === 2) { toggleFlag(i); return; }
+    if (e.button === 2) { toggleFlag(i); W.push(); return; }
     if (e.button !== 0) return;
     face.textContent = FACE.press; held = false;
-    if (e.pointerType !== 'mouse') hold = setTimeout(() => { held = true; toggleFlag(i); face.textContent = FACE.ok; }, 400);
+    if (e.pointerType !== 'mouse') hold = setTimeout(() => { held = true; toggleFlag(i); face.textContent = FACE.ok; W.push(); }, 400);
   });
   grid.addEventListener('pointerup', e => {
     clearTimeout(hold);
@@ -492,6 +600,7 @@ function openMinesweeper() {
     face.textContent = FACE.ok;
     if (held || i < 0) return;
     cells[i].open ? chord(i) : open(i);
+    W.push();
   });
   grid.addEventListener('pointerleave', () => { clearTimeout(hold); if (!over) face.textContent = FACE.ok; });
   face.onclick = () => newGame();
@@ -695,7 +804,7 @@ function openPaint() {
   q('.pt-act').append(
     btn('tbtn', 'Undo', 'Undo (Ctrl+Z)', () => doUndo()),
     btn('tbtn', 'Redo', 'Redo (Ctrl+Y)', () => doRedo()),
-    btn('tbtn', 'Clear', 'Clear the picture', () => { snap(); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); }),
+    btn('tbtn', 'Clear', 'Clear the picture', () => { snap(); clear(); W.push({ op: 'clear' }); }),
     btn('tbtn', 'Save', 'Save as PNG', () => cv.toBlob(b => {
       const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'drawing.png'; a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
@@ -710,8 +819,16 @@ function openPaint() {
 
   const all = () => g.getImageData(0, 0, cv.width, cv.height);
   function snap() { undo.push(all()); if (undo.length > 30) undo.shift(); redo.length = 0; }
-  function doUndo() { if (undo.length) { redo.push(all()); g.putImageData(undo.pop(), 0, 0); } }
-  function doRedo() { if (redo.length) { undo.push(all()); g.putImageData(redo.pop(), 0, 0); } }
+  function doUndo() { if (undo.length) { redo.push(all()); g.putImageData(undo.pop(), 0, 0); W.push(); } }
+  function doRedo() { if (redo.length) { undo.push(all()); g.putImageData(redo.pop(), 0, 0); W.push(); } }
+  function clear() { g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height); }
+  // in a room every stroke is sent as it's drawn; undo, redo and joining send the whole picture
+  shareState(W, () => ({ img: cv.toDataURL() }), d => {
+    if (d.img) { const im = new Image(); im.onload = () => { clear(); g.drawImage(im, 0, 0); }; im.src = d.img; }
+    else if (d.op === 'clear') clear();
+    else if (d.op === 'fill') fill(d.x, d.y, d.c);
+    else if (d.op) stroke(g, d.op, ...d.a, d.c, d.w);
+  });
   const width = () => tool === 'pencil' ? 2 : tool === 'eraser' ? size * 2 : size;
   const at = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
   function stroke(ctx, kind, x1, y1, x2, y2, color, w) {
@@ -755,22 +872,23 @@ function openPaint() {
       return refresh();
     }
     snap();
-    if (tool === 'fill') return fill(x, y, color);
+    if (tool === 'fill') { fill(x, y, color); return W.push({ op: 'fill', x, y, c: color }); }
     drawing = { x, y, lx: x, ly: y, color: tool === 'eraser' ? c2 : color };
     cv.setPointerCapture(e.pointerId);
-    if (FREEHAND.includes(tool)) stroke(g, 'line', x, y, x + 0.01, y, drawing.color, width());
+    if (FREEHAND.includes(tool)) line('line', [x, y, x + 0.01, y], drawing.color, width());
   });
+  const line = (kind, a, c, w) => { stroke(g, kind, ...a, c, w); W.push({ op: kind, a: a.map(v => Math.round(v * 10) / 10), c, w }); };
   cv.addEventListener('pointermove', e => {
     const [x, y] = at(e);
     q('.pt-pos').textContent = `${Math.round(x)}, ${Math.round(y)}px`;
     if (!drawing) return;
-    if (FREEHAND.includes(tool)) { stroke(g, 'line', drawing.lx, drawing.ly, x, y, drawing.color, width()); drawing.lx = x; drawing.ly = y; }
+    if (FREEHAND.includes(tool)) { line('line', [drawing.lx, drawing.ly, x, y], drawing.color, width()); drawing.lx = x; drawing.ly = y; }
     else { go.clearRect(0, 0, ov.width, ov.height); stroke(go, tool, drawing.x, drawing.y, x, y, drawing.color, width()); }
   });
   const finishShape = e => {
     if (!drawing) return;
     const [x, y] = at(e);
-    if (!FREEHAND.includes(tool)) { go.clearRect(0, 0, ov.width, ov.height); stroke(g, tool, drawing.x, drawing.y, x, y, drawing.color, width()); }
+    if (!FREEHAND.includes(tool)) { go.clearRect(0, 0, ov.width, ov.height); line(tool, [drawing.x, drawing.y, x, y], drawing.color, width()); }
     drawing = null;
   };
   cv.addEventListener('pointerup', finishShape);
@@ -826,6 +944,7 @@ function openBrowser(start) {
     W.setTitle(`${entry.title || entry.url} - Internet`);
     q('.bk').disabled = st.i <= 0; q('.fw').disabled = st.i >= st.hist.length - 1;
     q('.wb-out').disabled = !entry.url;
+    W.push();
   }
   function go(entry) {
     const cur = st.hist[st.i];
@@ -847,6 +966,10 @@ function openBrowser(start) {
     marks.append(btn);
   });
   if (!marks.children.length) marks.remove();
+  shareState(W, () => ({ e: st.hist[st.i] }), d => {
+    const cur = st.hist[st.i];
+    if (d.e && !(cur && cur.url === d.e.url && cur.note === d.e.note)) go(d.e);
+  });
   goUrl(start || BROWSER.home, start ? '' : 'Home');
   return W;
 }
@@ -874,6 +997,7 @@ function openPlayer(n, folder) {
       const b = el(`<button class="mp-song${k === i ? ' on' : ''}" role="listitem">${img(I.music, '')}<span></span></button>`);
       b.querySelector('span').textContent = t.name; b.onclick = () => { i = k; load(); }; return b;
     }));
+    if (W.push) W.push();
   }
   W.play = (song, f) => {
     songs = (f || parentOf(song) || desktop).children.filter(c => c.type === 'audio');
@@ -885,6 +1009,7 @@ function openPlayer(n, folder) {
   au.onended = () => skip(1);
   au.onplay = () => setMusic(false);
   W.onClose = () => { au.pause(); au.removeAttribute('src'); au.load(); playerWin = null; setMusic(true); };
+  shareMedia(W, au, () => nodeKey(songs[i]), k => { const song = keyNodes.get(k); if (song && song !== songs[i]) W.play(song); });
   playerWin = W;
   W.play(n, folder);
   return W;
@@ -915,7 +1040,7 @@ function openPinball() {
     { x: 98, y: 532, len: 58, rest: 0.5, up: -0.45, a: 0.5, w: 0, on: false },
     { x: 232, y: 532, len: 58, rest: Math.PI - 0.5, up: Math.PI + 0.45, a: Math.PI - 0.5, w: 0, on: false },
   ];
-  let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0;
+  let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0, sendTick = 0;
   const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true }; charge = 0; };
   function newGame() { score = 0; balls = 3; over = false; resetBall(); }
   newGame();
@@ -970,6 +1095,7 @@ function openPinball() {
     if (balls > 0) return resetBall();
     over = true; resetBall();
     if (score > best) { best = score; store.set('pinball-best', best); }
+    W.push();
   }
   function launch() { if (ball.onPlunger && !over) { ball.onPlunger = false; ball.vy = -(850 + 550 * charge); charge = 0; } }
 
@@ -1003,41 +1129,56 @@ function openPinball() {
   }
   function frame(t) {
     const dt = Math.min(0.033, (t - last) / 1000 || 0); last = t;
-    if (W.el.classList.contains('active') && !over) {
+    if (W.el.classList.contains('active') && !over && isLead(W)) {
       if (charging && ball.onPlunger) charge = Math.min(1, charge + dt * 1.2);
       for (let k = 0; k < 8; k++) step(dt / 8);
       bumpers.forEach(b => { b.flash = Math.max(0, b.flash - dt); });
+      if (live() && ++sendTick % 2) W.push();
     }
     draw();
     raf = requestAnimationFrame(frame);
   }
   raf = requestAnimationFrame(frame);
 
-  const flip = (side, on) => { flippers[side].on = on; };
+  // in a room the opener's computer runs the table; the others send flipper and plunger presses
+  const flip = (side, on) => { if (isLead(W)) flippers[side].on = on; else sendInput(W, { flip: [side, on] }); };
+  const plunge = on => {
+    if (!isLead(W)) return sendInput(W, { plunge: on });
+    if (on) { if (over) newGame(); else if (ball.onPlunger) charging = true; }
+    else if (charging) { charging = false; launch(); }
+    W.push();
+  };
+  W.onInput = d => { if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); };
+  shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging }), d => {
+    [ball.x, ball.y, ball.onPlunger, ball.inLane] = d.b;
+    d.f.forEach((a, k) => { flippers[k].a = a; }); d.fl.forEach((v, k) => { bumpers[k].flash = v; });
+    ({ score, balls, over, charge, charging } = d);
+    if (over && score > best) { best = score; store.set('pinball-best', best); }
+  });
   const keyOf = e => ['z', 'Z', 'ArrowLeft', 'Shift'].includes(e.key) && e.code !== 'ShiftRight' ? 0
     : ['/', '?', 'ArrowRight'].includes(e.key) || e.code === 'ShiftRight' ? 1 : e.key === ' ' || e.key === 'ArrowDown' ? 'launch' : null;
   const onDown = e => {
     if (!W.el.classList.contains('active')) return;
     const k = keyOf(e); if (k === null) return;
     e.preventDefault();
-    if (k === 'launch') { if (over) newGame(); else if (ball.onPlunger) charging = true; }
-    else flip(k, true);
+    if (k === 'launch') { if (!e.repeat) plunge(true); }
+    else if (!e.repeat) flip(k, true);
   };
   const onUp = e => {
     const k = keyOf(e); if (k === null) return;
-    if (k === 'launch') { if (charging) { charging = false; launch(); } }
+    if (k === 'launch') plunge(false);
     else flip(k, false);
   };
   document.addEventListener('keydown', onDown);
   document.addEventListener('keyup', onUp);
+  let pressed = null;
   cv.addEventListener('pointerdown', e => {
-    if (over) return newGame();
     cv.setPointerCapture(e.pointerId);
-    if (ball.onPlunger) { charging = true; return; }
+    if (over || ball.onPlunger) { pressed = 'plunge'; return plunge(true); }
     const r = cv.getBoundingClientRect();
-    flip(e.clientX - r.left < r.width / 2 ? 0 : 1, true);
+    pressed = e.clientX - r.left < r.width / 2 ? 0 : 1; flip(pressed, true);
   });
-  const release = () => { if (charging) { charging = false; launch(); } flip(0, false); flip(1, false); };
+  const release = () => { if (pressed === 'plunge') plunge(false); else if (pressed != null) flip(pressed, false); pressed = null; };
   cv.addEventListener('pointerup', release);
   cv.addEventListener('pointercancel', release);
   cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -1057,7 +1198,7 @@ function openSnake() {
   const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
   const scoreEl = W.body.querySelector('.sn-score'), bestEl = W.body.querySelector('.sn-best');
   const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-  let snake, dir, queue, food, score, best = store.get('snake-best', 0), state, acc = 0, last = 0, raf = 0;
+  let snake, dir, queue, food, score, best = store.get('snake-best', 0), state, acc = 0, last = 0, raf = 0, dirty = false;
   const speed = () => Math.max(60, 140 - score / 10 * 4); // ms per step, faster with every apple
   function placeFood() {
     const free = [];
@@ -1066,14 +1207,16 @@ function openSnake() {
   }
   function newGame() {
     snake = [[8, 10], [7, 10], [6, 10]]; dir = DIRS.right; queue = []; score = 0; state = 'ready'; acc = 0;
-    placeFood(); updateText();
+    placeFood(); updateText(); dirty = true;
   }
   function updateText() { scoreEl.textContent = `Score ${score}`; bestEl.textContent = `Best ${best}`; }
   function turn(name) {
+    if (!isLead(W)) return sendInput(W, { turn: name });
     if (state === 'over') return;
     const d = DIRS[name], prev = queue.length ? queue[queue.length - 1] : dir;
     if (queue.length < 3 && d !== prev && (d[0] !== -prev[0] || d[1] !== -prev[1])) queue.push(d);
     if (state !== 'playing') state = 'playing';
+    dirty = true;
   }
   function step() {
     if (queue.length) dir = queue.shift();
@@ -1081,11 +1224,11 @@ function openSnake() {
     const eating = head[0] === food[0] && head[1] === food[1];
     const body = eating ? snake : snake.slice(0, -1); // the tail moves out of the way unless we grow
     if (head[0] < 0 || head[1] < 0 || head[0] >= N || head[1] >= N || body.some(p => p[0] === head[0] && p[1] === head[1])) {
-      state = 'over';
+      state = 'over'; dirty = true;
       if (score > best) { best = score; store.set('snake-best', best); }
       updateText(); return;
     }
-    snake = [head, ...body];
+    snake = [head, ...body]; dirty = true;
     if (eating) { score += 10; updateText(); if (snake.length === N * N) { state = 'over'; return; } placeFood(); }
   }
 
@@ -1115,19 +1258,32 @@ function openSnake() {
   }
   function frame(t) {
     const dt = Math.min(100, t - last || 0); last = t;
-    if (state === 'playing' && W.el.classList.contains('active')) {
+    if (state === 'playing' && W.el.classList.contains('active') && isLead(W)) {
       acc += dt;
       while (acc >= speed() && state === 'playing') { acc -= speed(); step(); }
     }
+    if (dirty) { dirty = false; W.push(); }
     draw();
     raf = requestAnimationFrame(frame);
   }
 
   const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
-  const pause = () => { if (state === 'playing') state = 'paused'; else if (state === 'paused') state = 'playing'; else if (state === 'over') newGame(); };
+  const pause = () => {
+    if (!isLead(W)) return sendInput(W, { pause: 1 });
+    if (state === 'playing') state = 'paused'; else if (state === 'paused') state = 'playing'; else if (state === 'over') newGame();
+    dirty = true;
+  };
+  const resume = () => { if (state === 'paused') pause(); };
+  // in a room the opener's computer runs the game; everyone else sends their keys and sees the board
+  W.onInput = d => { if (d.turn) { resume(); turn(d.turn); } if (d.pause) pause(); };
+  shareState(W, () => ({ snake, dir, food, score, state }), d => {
+    ({ snake, food, score, state } = d); dir = Object.values(DIRS).find(v => v[0] === d.dir[0] && v[1] === d.dir[1]);
+    if (state === 'over' && score > best) { best = score; store.set('snake-best', best); }
+    updateText();
+  });
   const onKey = e => {
     if (!W.el.classList.contains('active')) return;
-    if (KEYS[e.key]) { e.preventDefault(); if (state === 'paused') state = 'playing'; turn(KEYS[e.key]); }
+    if (KEYS[e.key]) { e.preventDefault(); resume(); turn(KEYS[e.key]); }
     else if (e.key === ' ' || e.key === 'p' || e.key === 'P') { e.preventDefault(); pause(); }
   };
   document.addEventListener('keydown', onKey);
@@ -1136,7 +1292,7 @@ function openSnake() {
   cv.addEventListener('pointerup', e => {
     const dx = e.clientX - sx, dy = e.clientY - sy;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) { if (state === 'ready') turn('right'); else pause(); return; }
-    if (state === 'paused') state = 'playing';
+    resume();
     turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
   });
   cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -1176,24 +1332,34 @@ function openSolitaire() {
     st = { stock: [], waste: [], found: [[], [], [], []], tab: [] };
     for (let c = 0; c < 7; c++) { st.tab.push(deck.splice(0, c + 1)); st.tab[c][c].up = true; }
     st.stock = deck;
-    Object.values(els).forEach(e => e.remove()); els = {};
     [...st.stock, ...st.tab.flat()].forEach(c => {
+      if (els[c.id]) return;
       const e = el(`<div class="sol-card${isRed(c) ? ' red' : ''}"><span class="sol-i">${RANKS[c.r]}<br>${SUITS[c.s]}</span><span class="sol-m">${SUITS[c.s]}</span></div>`);
       e.dataset.id = c.id; board.append(e); els[c.id] = e;
     });
-    render();
+    render(); W.push();
   }
   const begin = () => { if (!t0) { t0 = Date.now(); timer = setInterval(clock, 1000); } };
   function act(fn) { // every move goes through here so it can be undone
     history.push(JSON.stringify(st)); if (history.length > 200) history.shift();
     begin(); fn(); moves++;
     for (const col of st.tab) if (col.length && !col[col.length - 1].up) col[col.length - 1].up = true;
-    render(); checkWin();
+    render(); checkWin(); W.push();
   }
   function undo() {
     if (!history.length) return;
-    clearTimeout(auto); st = JSON.parse(history.pop()); moves++; note.hidden = true; render();
+    clearTimeout(auto); st = JSON.parse(history.pop()); moves++; note.hidden = true; render(); W.push();
   }
+  // the table is shared: every move sends the whole layout
+  shareState(W, () => ({ st, moves, drawN, el: t0 ? Date.now() - t0 : 0 }), d => {
+    if (drag) { drag.cards.forEach(c => els[c.id].classList.remove('drag')); drag = null; }
+    clearTimeout(auto); st = d.st; moves = d.moves; drawN = d.drawN;
+    const won = st.found.every(f => f.length === 13);
+    clearInterval(timer); timer = null; t0 = d.el ? Date.now() - d.el : 0;
+    if (t0 && !won) timer = setInterval(clock, 1000);
+    if (won) { note.innerHTML = `<b>You won!</b><span>${moves} moves in ${mmss(Math.floor(d.el / 1000))}</span><button class="okbtn">Play again</button>`; note.querySelector('button').onclick = newGame; }
+    note.hidden = !won; render();
+  });
 
   // ---- rules ----
   const top = p => p[p.length - 1];
@@ -1285,7 +1451,7 @@ function openSolitaire() {
     if (!ce) { if (se && se.dataset.k === 'stock') draw(); return; }
     const k = ce.dataset.k, i = +ce.dataset.i, src = pile(k);
     if (k === 'stock') return draw();
-    if (!src[i].up || (k[0] !== 't' && i !== src.length - 1)) return; // only the top card leaves the waste or a foundation
+    if (!src[i] || !src[i].up || (k[0] !== 't' && i !== src.length - 1)) return; // only the top card leaves the waste or a foundation
     const cards = src.slice(i), r = board.getBoundingClientRect();
     drag = { k, i, cards, x: e.clientX, y: e.clientY, moved: false, starts: cards.map(c => [parseFloat(els[c.id].style.left), parseFloat(els[c.id].style.top)]), r };
     board.setPointerCapture(e.pointerId);
@@ -1637,5 +1803,147 @@ volMute.onclick = () => { snd.muted = !snd.muted; applyVolume(); };
 volBtn.addEventListener('wheel', e => { e.preventDefault(); snd.volume = Math.max(0, Math.min(1, snd.volume + (e.deltaY < 0 ? 0.05 : -0.05))); snd.muted = false; applyVolume(); }, { passive: false });
 applyVolume();
 
+/* ---------- multiplayer: rooms, people and cursors ---------- */
+// Browsers connect straight to each other (WebRTC). Public Nostr relays only help them find each
+// other, so there's no server or database; the shared desktop lives in the open browsers.
+const MP_COLORS = ['#e8445a', '#f08c2e', '#e6c229', '#3bb273', '#2fa7d8', '#5b6ee1', '#a35bd8', '#e55fae'];
+const me = { name: store.get('mp-name', `Guest ${100 + Math.floor(Math.random() * 900)}`), color: store.get('mp-color', MP_COLORS[Math.floor(Math.random() * MP_COLORS.length)]) };
+let room = null, roomCode = '', since = 0, synced = false, mpPanel = null;
+const mpBtn = document.getElementById('mpb');
+const roomFromUrl = () => (location.hash.match(/room=([\w-]+)/) || [])[1] || '';
+const inviteLink = () => `${location.origin}${location.pathname}#room=${roomCode}`;
+const newCode = () => Array.from({ length: 6 }, () => 'abcdefghjkmnpqrstuvwxyz23456789'[Math.floor(Math.random() * 31)]).join('');
+
+function toast(text) {
+  const t = el('<div class="mp-toast"></div>'); t.textContent = text; document.body.append(t);
+  setTimeout(() => t.classList.add('out'), 2600); setTimeout(() => t.remove(), 3000);
+}
+const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since }, to);
+
+async function joinRoom(code) {
+  if (room) await leaveRoom();
+  roomCode = code.toLowerCase().replace(/[^\w-]/g, '').slice(0, 32); if (!roomCode) return;
+  let lib;
+  try { lib = await import('./assets/vendor/trystero.js'); }
+  catch { toast("Couldn't load multiplayer. Open the site from a web server, not straight from a file."); roomCode = ''; return; }
+  since = Date.now(); synced = false;
+  room = lib.joinRoom({ appId: `krowos-${SITE_NAME}`, password: roomCode, ...(MULTIPLAYER.turn ? { turnConfig: MULTIPLAYER.turn } : {}) }, roomCode);
+  const action = room.makeAction('m');
+  mp.send = (m, to) => { action.send(m, to ? { target: to } : undefined).catch(() => {}); };
+  action.onMessage = (m, { peerId }) => receive(m, peerId);
+  room.onPeerJoin = peerId => hello(peerId);
+  room.onPeerLeave = peerId => {
+    const p = mp.peers.get(peerId); if (!p) return;
+    p.cur.remove(); mp.peers.delete(peerId); toast(`${p.name} left`); refreshMp();
+  };
+  history.replaceState(null, '', '#room=' + roomCode);
+  refreshMp();
+}
+async function leaveRoom() {
+  const r = room; room = null; mp.send = null; roomCode = '';
+  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear();
+  history.replaceState(null, '', location.pathname + location.search);
+  refreshMp();
+  if (r) await r.leave().catch(() => {});
+}
+
+function receive(m, from) {
+  const p = mp.peers.get(from), W = m.sid ? bySid(m.sid) : null;
+  if (m.t === 'hello') {
+    const known = !!p, peer = p || { cur: el('<div class="mp-cur" hidden><svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4.2 3 6.7 3-1.4-3-6.6H15z"/></svg><span></span></div>') };
+    Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since });
+    peer.cur.style.setProperty('--c', m.color); peer.cur.querySelector('span').textContent = m.name;
+    if (!known) { document.body.append(peer.cur); mp.peers.set(from, peer); toast(`${m.name} joined`); }
+    if (!known && m.since > since) mpSend({ t: 'snap', since, wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
+    refreshMp(); return;
+  }
+  if (!p) return;
+  if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d); return; }
+  asRemote(() => {
+    if (m.t === 'cur') return moveCursor(p, m);
+    if (m.t === 'snap') { // someone who was here first: show their desktop instead of mine
+      if (synced || m.since >= since) return;
+      synced = true;
+      wins.filter(w => w.sid).forEach(w => closeWin(w));
+      m.wins.forEach(openRemote);
+      return;
+    }
+    if (m.t === 'open') return openRemote(m);
+    if (!W) return;
+    if (m.t === 'close') closeWin(W);
+    else if (m.t === 'focus') focusWin(W);
+    else if (m.t === 'min') { W.el.classList.add('min'); focusTop(); }
+    else if (m.t === 'max') { if (m.on !== W.el.classList.contains('max')) toggleMax(W); }
+    else if (m.t === 'mv') setRect(W, [m.x, m.y, W.el.offsetWidth, W.el.offsetHeight]);
+    else if (m.t === 'app' && W.setState) W.setState(m.d);
+  });
+}
+
+// cursors: over a shared window the spot is sent relative to that window, so it lands on the
+// same button even when the two screens are different sizes
+function moveCursor(p, m) {
+  const W = m.w && bySid(m.w);
+  if (m.hide || (m.w && (!W || W.el.classList.contains('min')))) { p.cur.hidden = true; return; }
+  const x = W ? W.el.offsetLeft + m.x : m.x, y = W ? W.el.offsetTop + m.y : m.y;
+  p.cur.hidden = false;
+  p.cur.style.transform = `translate(${Math.max(0, Math.min(innerWidth - 12, x))}px, ${Math.max(0, Math.min(innerHeight - 12, y))}px)`;
+  if (m.down) { const r = el('<i class="mp-click"></i>'); p.cur.append(r); setTimeout(() => r.remove(), 450); }
+}
+let curMsg = null, curTimer = null;
+function sendCursor(e, down) {
+  if (!live()) return;
+  const w = e.target.closest && e.target.closest('.win'), W = w && wins.find(o => o.el === w && o.sid);
+  curMsg = W ? { t: 'cur', w: W.sid, x: e.clientX - w.offsetLeft, y: e.clientY - w.offsetTop } : { t: 'cur', x: e.clientX, y: e.clientY };
+  if (down) { curMsg.down = 1; mpSend(curMsg); curMsg = null; return; }
+  if (!curTimer) curTimer = setTimeout(() => { curTimer = null; if (curMsg) mpSend(curMsg); curMsg = null; }, 40);
+}
+document.addEventListener('pointermove', e => sendCursor(e, false), true);
+document.addEventListener('pointerdown', e => sendCursor(e, true), true);
+document.documentElement.addEventListener('pointerleave', () => { if (live()) mpSend({ t: 'cur', hide: 1 }); });
+
+// the panel: start or join a room, share the link, see who's here
+function refreshMp() {
+  const n = mp.peers.size;
+  mpBtn.classList.toggle('live', !!room);
+  mpBtn.innerHTML = `<span class="mp-ico">👥</span>${room ? `<b>${n + 1}</b>` : ''}`;
+  mpBtn.title = room ? `Multiplayer: room ${roomCode}, ${n + 1} here` : 'Multiplayer';
+  if (mpPanel) mpPanel.render();
+}
+function openMpPanel() {
+  if (mpPanel) { focusWin(mpPanel); return mpPanel; }
+  const W = makeWin({ title: 'Multiplayer', icon: I.multiplayer, w: 380, h: 470 });
+  const q = sel => W.body.querySelector(sel);
+  W.render = () => {
+    const swatches = MP_COLORS.map(c => `<button class="mp-sw${c === me.color ? ' on' : ''}" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('');
+    const people = [{ ...me, you: true }, ...mp.peers.values()].map(p => `<li><i style="background:${p.color}"></i>${esc(p.name)}${p.you ? ' <span class="dim">(you)</span>' : ''}</li>`).join('');
+    W.body.innerHTML = `<div class="mpp"><label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
+      + (room
+        ? `<div class="mp-box"><div>Room <b class="mp-code">${esc(roomCode)}</b></div><div class="mp-link"><input class="mp-url" readonly><button class="okbtn mp-copy">Copy link</button></div>`
+          + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div></div>`
+          + `<h4>Here now</h4><ul class="mp-people">${people}</ul><button class="okbtn mp-leave">Leave room</button>`
+        : `<div class="mp-box"><button class="okbtn mp-new">Start a room</button><div class="dim">You get a link to send. Whoever opens it sees your desktop, mouse and windows live.</div></div>`
+          + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code" aria-label="Room code"><button class="okbtn">Join</button></div></form>`)
+      + `<div class="dim mp-fine">Connections go straight between browsers, nothing is saved anywhere. Strict school or work networks can block them.</div></div>`;
+    const name = q('.mp-name'); name.value = me.name;
+    name.onchange = () => { me.name = name.value.trim().slice(0, 24) || me.name; store.set('mp-name', me.name); hello(); W.render(); };
+    W.body.querySelectorAll('.mp-sw').forEach(b => b.onclick = () => { me.color = b.dataset.c; store.set('mp-color', me.color); hello(); W.render(); });
+    if (room) {
+      q('.mp-url').value = inviteLink();
+      q('.mp-copy').onclick = () => { navigator.clipboard.writeText(inviteLink()).then(() => toast('Link copied'), () => q('.mp-url').select()); };
+      q('.mp-leave').onclick = () => leaveRoom();
+    } else {
+      q('.mp-new').onclick = () => joinRoom(newCode());
+      q('.mp-join').onsubmit = e => { e.preventDefault(); const c = q('.mp-in').value.trim(); if (c) joinRoom(c.replace(/.*room=/, '')); };
+    }
+  };
+  W.onClose = () => { mpPanel = null; };
+  mpPanel = W; W.render();
+  return W;
+}
+mpBtn.onclick = () => openMpPanel();
+if (!MULTIPLAYER.enabled) mpBtn.hidden = true;
+refreshMp();
+
 if (OPEN_ON_START) openNode(OPEN_ON_START);
+if (MULTIPLAYER.enabled && roomFromUrl()) joinRoom(roomFromUrl());
 })();

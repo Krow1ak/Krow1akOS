@@ -41,6 +41,7 @@ const ASSETS = {
     solitaire:   'assets/icons/solitaire.png',
     music:       'assets/icons/music.png',
     browser:     'assets/icons/browser.png',
+    multiplayer: 'assets/icons/multiplayer.png',
   },
 
   ui: {
@@ -88,6 +89,19 @@ const SOUND = {
   startMuted:  true,
   musicVolume: 0.35,
   videoVolume: 0.35,
+};
+
+/* ---------- MULTIPLAYER ----------
+   The 👥 button on the taskbar starts a room and gives a link to send. Everyone who opens
+   it sees the same desktop: each other's mouse, the same windows, Paint, games, songs...
+   Browsers connect straight to each other, so there's no server or database to run.
+   enabled: false hides the button.
+   turn: only needed if people on strict networks (school, work) can't connect. Get a free
+     TURN server (e.g. from metered.ca) and put it here:
+     [{ urls: 'turn:example.com:3478', username: '...', credential: '...' }] */
+const MULTIPLAYER = {
+  enabled: true,
+  turn: null,
 };
 
 /* Special dates for the calendar (click the clock) */

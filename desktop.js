@@ -2023,6 +2023,25 @@ function toast(text) {
   const t = el('<div class="mp-toast"></div>'); t.textContent = text; document.body.append(t);
   setTimeout(() => t.classList.add('out'), 2600); setTimeout(() => t.remove(), 3000);
 }
+// chat: lives in the Multiplayer window; while it's closed, messages pop up as toasts and over the sender's cursor
+const chatLog = [];
+let unread = 0;
+const panelOpen = () => mpPanel && !mpPanel.el.classList.contains('min');
+function addChat(entry) {
+  chatLog.push({ ...entry, at: entry.at || Date.now() }); if (chatLog.length > 200) chatLog.shift();
+  if (mpPanel) mpPanel.chatAdd(chatLog[chatLog.length - 1]);
+}
+function sendChat(text) {
+  text = text.trim().slice(0, 300); if (!text || !room) return;
+  mpSend({ t: 'chat', text });
+  addChat({ id: mp.self, name: me.name, color: me.color, text });
+}
+function bubble(p, text) {
+  let b = p.cur.querySelector('.mp-bubble');
+  if (!b) { b = el('<b class="mp-bubble"></b>'); p.cur.append(b); }
+  b.textContent = text; b.hidden = false;
+  clearTimeout(p.bubbleT); p.bubbleT = setTimeout(() => { b.hidden = true; }, 4500);
+}
 const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since }, to);
 
 async function joinRoom(code) {
@@ -2041,14 +2060,14 @@ async function joinRoom(code) {
   room.onPeerJoin = peerId => hello(peerId);
   room.onPeerLeave = peerId => {
     const p = mp.peers.get(peerId); if (!p) return;
-    p.cur.remove(); mp.peers.delete(peerId); toast(`${p.name} left`); refreshMp();
+    p.cur.remove(); mp.peers.delete(peerId); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
   };
   history.replaceState(null, '', '#room=' + roomCode);
   refreshMp();
 }
 async function leaveRoom() {
   const r = room; room = null; mp.send = null; roomCode = '';
-  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear();
+  mp.peers.forEach(p => p.cur.remove()); mp.peers.clear(); chatLog.length = 0; unread = 0;
   history.replaceState(null, '', location.pathname + location.search);
   refreshMp();
   if (r) await r.leave().catch(() => {});
@@ -2060,17 +2079,32 @@ function receive(m, from) {
     const known = !!p, peer = p || { cur: el('<div class="mp-cur" hidden><svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4.2 3 6.7 3-1.4-3-6.6H15z"/></svg><span></span></div>') };
     Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since });
     peer.cur.style.setProperty('--c', m.color); peer.cur.querySelector('span').textContent = m.name;
-    if (!known) { document.body.append(peer.cur); mp.peers.set(from, peer); toast(`${m.name} joined`); }
-    if (!known && m.since > since) mpSend({ t: 'snap', since, wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
+    if (!known) {
+      document.body.append(peer.cur); mp.peers.set(from, peer);
+      if (m.since > since) { toast(`${m.name} joined`); addChat({ sys: true, text: `${m.name} joined` }); } // not for people who were already here
+    }
+    if (!known && m.since > since) mpSend({ t: 'snap', since, chat: chatLog.slice(-50), wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
     refreshMp(); return;
   }
   if (!p) return;
   if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d); return; }
+  if (m.t === 'chat') {
+    const text = String(m.text || '').slice(0, 300).trim(); if (!text) return;
+    addChat({ id: p.id, name: p.name, color: p.color, text }); bubble(p, text);
+    if (!panelOpen()) { unread++; refreshMp(); toast(`${p.name}: ${text}`); }
+    return;
+  }
   asRemote(() => {
     if (m.t === 'cur') return moveCursor(p, m);
     if (m.t === 'snap') { // someone who was here first: show their desktop instead of mine
       if (synced || m.since >= since) return;
       synced = true;
+      if (Array.isArray(m.chat)) { // catch up on what was said before I came
+        const before = chatLog.splice(0).filter(c => !c.sys);
+        m.chat.forEach(c => c && typeof c.text === 'string' && chatLog.push({ id: c.id, name: String(c.name || ''), color: String(c.color || ''), text: c.text.slice(0, 300), sys: !!c.sys, at: +c.at || Date.now() }));
+        chatLog.push(...before);
+        if (mpPanel) mpPanel.chatAll();
+      }
       wins.filter(w => w.sid).forEach(w => closeWin(w));
       m.wins.forEach(openRemote);
       return;
@@ -2112,25 +2146,42 @@ document.documentElement.addEventListener('pointerleave', () => { if (live()) mp
 function refreshMp() {
   const n = mp.peers.size;
   mpBtn.classList.toggle('live', !!room);
-  mpBtn.innerHTML = `<span class="mp-ico">👥</span>${room ? `<b>${n + 1}</b>` : ''}`;
+  if (panelOpen()) unread = 0;
+  mpBtn.innerHTML = `<span class="mp-ico">👥</span>${room ? `<b>${n + 1}</b>` : ''}${unread ? `<i class="mp-unread">${unread > 9 ? '9+' : unread}</i>` : ''}`;
   mpBtn.title = room ? `Multiplayer: room ${roomCode}, ${n + 1} here` : 'Multiplayer';
   if (mpPanel) mpPanel.render();
 }
 function openMpPanel() {
   if (mpPanel) { focusWin(mpPanel); return mpPanel; }
-  const W = makeWin({ title: 'Multiplayer', icon: I.multiplayer, w: 380, h: 470 });
+  const W = makeWin({ title: 'Multiplayer', icon: I.multiplayer, w: 400, h: 640 });
   const q = sel => W.body.querySelector(sel);
+  W.body.innerHTML = '<div class="mpp"><div class="mp-top"></div><div class="mp-chat" hidden><h4>Chat</h4><div class="mp-log" role="log" aria-live="polite"></div>'
+    + '<form class="mp-sayform"><input class="mp-msg" maxlength="300" placeholder="Say something…" aria-label="Chat message" autocomplete="off"><button class="okbtn">Send</button></form></div></div>';
+  const log = q('.mp-log'), top = q('.mp-top');
+  const hhmm = t => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  W.chatAdd = c => {
+    const line = el(`<div class="mp-line${c.sys ? ' sys' : ''}${c.id === mp.self ? ' mine' : ''}"></div>`);
+    if (!c.sys) { const who = el('<b></b>'); who.textContent = c.name; who.style.color = c.color; line.append(who, ' '); }
+    line.append(document.createTextNode(c.text));
+    const tm = el('<time></time>'); tm.textContent = hhmm(c.at); line.append(tm);
+    const atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+    log.append(line);
+    if (atEnd || c.id === mp.self) log.scrollTop = log.scrollHeight;
+  };
+  W.chatAll = () => { log.replaceChildren(); chatLog.forEach(W.chatAdd); log.scrollTop = log.scrollHeight; };
+  q('.mp-sayform').onsubmit = e => { e.preventDefault(); const i = q('.mp-msg'); sendChat(i.value); i.value = ''; i.focus(); };
   W.render = () => {
     const swatches = MP_COLORS.map(c => `<button class="mp-sw${c === me.color ? ' on' : ''}" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('');
     const people = [{ ...me, you: true }, ...mp.peers.values()].map(p => `<li><i style="background:${p.color}"></i>${esc(p.name)}${p.you ? ' <span class="dim">(you)</span>' : ''}</li>`).join('');
-    W.body.innerHTML = `<div class="mpp"><label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
+    top.innerHTML = `<label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
       + (room
         ? `<div class="mp-box"><div>Room <b class="mp-code">${esc(roomCode)}</b></div><div class="mp-link"><input class="mp-url" readonly><button class="okbtn mp-copy">Copy link</button></div>`
           + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div><div class="mp-status"></div></div>`
-          + `<h4>Here now</h4><ul class="mp-people">${people}</ul><button class="okbtn mp-leave">Leave room</button>`
+          + `<div class="mp-here"><h4>Here now</h4><button class="okbtn mp-leave">Leave room</button></div><ul class="mp-people">${people}</ul>`
         : `<div class="mp-box"><button class="okbtn mp-new">Start a room</button><div class="dim">You get a link to send. Whoever opens it sees your desktop, mouse and windows live.</div></div>`
           + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code or link" aria-label="Room code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="okbtn">Join</button></div></form>`)
-      + `<div class="dim mp-fine">Connections go straight between browsers, nothing is saved anywhere. Strict school or work networks can block them.</div></div>`;
+      + (room ? '' : `<div class="dim mp-fine">Connections go straight between browsers, nothing is saved anywhere. Strict school or work networks can block them.</div>`);
+    q('.mp-chat').hidden = !room;
     const name = q('.mp-name'); name.value = me.name;
     name.onchange = () => { me.name = name.value.trim().slice(0, 24) || me.name; store.set('mp-name', me.name); hello(); W.render(); };
     W.body.querySelectorAll('.mp-sw').forEach(b => b.onclick = () => { me.color = b.dataset.c; store.set('mp-color', me.color); hello(); W.render(); });
@@ -2165,7 +2216,8 @@ function openMpPanel() {
   };
   const statusTimer = setInterval(W.status, 1500);
   W.onClose = () => { clearInterval(statusTimer); mpPanel = null; };
-  mpPanel = W; W.render();
+  mpPanel = W; W.render(); W.chatAll(); refreshMp();
+  W.el.addEventListener('pointerdown', () => { if (unread) { unread = 0; refreshMp(); } });
   return W;
 }
 mpBtn.onclick = () => openMpPanel();

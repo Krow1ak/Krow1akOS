@@ -1,5 +1,25 @@
 /* LaisaOS — desktop logic. Content and asset paths live in config.js. */
 (() => {
+/* ---------- screen scale ---------- */
+// Everyone gets the same layout: the whole desktop is drawn on a virtual screen DISPLAY.height units tall,
+// scaled to fit the browser window (wider screens just get more room at the sides). Inside this file
+// innerWidth/innerHeight, mouse positions (cX/cY) and element boxes (lrect) are all in those units.
+const UI = { s: 1 };
+let innerWidth = window.innerWidth, innerHeight = window.innerHeight;
+function applyScale() {
+  const vw = window.innerWidth, vh = window.innerHeight, d = typeof DISPLAY === 'object' ? DISPLAY : {};
+  UI.s = d.scale === false || vw <= 640 ? 1 : Math.max(0.5, Math.min(3, vh / (d.height || 900))); // phones keep their own layout
+  innerWidth = vw / UI.s; innerHeight = vh / UI.s;
+  const b = document.body.style, r = document.documentElement.style;
+  if (UI.s === 1) { b.transform = b.width = b.height = ''; }
+  else Object.assign(b, { transform: `scale(${UI.s})`, transformOrigin: '0 0', width: innerWidth + 'px', height: innerHeight + 'px' });
+  r.setProperty('--vw', innerWidth / 100 + 'px'); r.setProperty('--vh', innerHeight / 100 + 'px');
+}
+applyScale();
+window.addEventListener('resize', applyScale); // registered first, so everything else sees the new size
+const cX = e => e.clientX / UI.s, cY = e => e.clientY / UI.s;
+const lrect = elm => { const r = elm.getBoundingClientRect(), k = UI.s; return { left: r.left / k, top: r.top / k, right: r.right / k, bottom: r.bottom / k, width: r.width / k, height: r.height / k, x: r.x / k, y: r.y / k }; };
+
 const I = ASSETS.icons, U = ASSETS.ui;
 const img = (src, cls = 'ico', alt = '') => `<img class="${cls}" src="${src}" alt="${alt}" draggable="false">`;
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -162,10 +182,10 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
   tb.addEventListener('dblclick', e => { if (!noMax && !e.target.closest('.caps')) toggleMax(W); });
   tb.addEventListener('pointerdown', e => {
     if (e.target.closest('.caps') || innerWidth <= 640) return;
-    if (win.classList.contains('max')) { const r = e.clientX / innerWidth; toggleMax(W); win.style.left = (e.clientX - win.offsetWidth * r) + 'px'; win.style.top = '0px'; }
-    const ox = e.clientX - win.offsetLeft, oy = e.clientY - win.offsetTop; tb.setPointerCapture(e.pointerId);
+    if (win.classList.contains('max')) { const r = cX(e) / innerWidth; toggleMax(W); win.style.left = (cX(e) - win.offsetWidth * r) + 'px'; win.style.top = '0px'; }
+    const ox = cX(e) - win.offsetLeft, oy = cY(e) - win.offsetTop; tb.setPointerCapture(e.pointerId);
     const mv = ev => {
-      win.style.left = Math.min(innerWidth - 60, Math.max(60 - win.offsetWidth, ev.clientX - ox)) + 'px'; win.style.top = Math.min(innerHeight - 80, Math.max(0, ev.clientY - oy)) + 'px';
+      win.style.left = Math.min(innerWidth - 60, Math.max(60 - win.offsetWidth, cX(ev) - ox)) + 'px'; win.style.top = Math.min(innerHeight - 80, Math.max(0, cY(ev) - oy)) + 'px';
       tellRect(W);
     };
     const up = () => { tb.removeEventListener('pointermove', mv); tb.removeEventListener('pointerup', up); tellRect(W, true); };
@@ -175,11 +195,11 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
   win.querySelectorAll('.rz').forEach(h => h.addEventListener('pointerdown', e => {
     if (e.button !== 0 || innerWidth <= 640 || win.classList.contains('max')) return;
     e.preventDefault(); e.stopPropagation(); focusWin(W);
-    const d = h.dataset.d, sx = e.clientX, sy = e.clientY, [x0, y0, w0, h0] = [win.offsetLeft, win.offsetTop, win.offsetWidth, win.offsetHeight];
+    const d = h.dataset.d, sx = cX(e), sy = cY(e), [x0, y0, w0, h0] = [win.offsetLeft, win.offsetTop, win.offsetWidth, win.offsetHeight];
     const minW = 260, minH = 140;
     h.setPointerCapture(e.pointerId);
     const mv = ev => {
-      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      const dx = cX(ev) - sx, dy = cY(ev) - sy;
       let x = x0, y = y0, w = w0, hh = h0;
       if (d.includes('e')) w = Math.max(minW, w0 + dx);
       if (d.includes('s')) hh = Math.max(minH, h0 + dy);
@@ -1027,11 +1047,11 @@ function openPaint() {
   W.body.querySelectorAll('.pt-rz').forEach(hd => hd.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     e.preventDefault(); hd.setPointerCapture(e.pointerId);
-    const d = hd.dataset.d, sx = e.clientX, sy = e.clientY, w0 = cv.width, h0 = cv.height;
+    const d = hd.dataset.d, sx = cX(e), sy = cY(e), w0 = cv.width, h0 = cv.height;
     let w = w0, h = h0;
     const mv = ev => {
-      if (d.includes('e')) w = Math.max(1, Math.min(4000, Math.round(w0 + (ev.clientX - sx) / zoom)));
-      if (d.includes('s')) h = Math.max(1, Math.min(4000, Math.round(h0 + (ev.clientY - sy) / zoom)));
+      if (d.includes('e')) w = Math.max(1, Math.min(4000, Math.round(w0 + (cX(ev) - sx) / zoom)));
+      if (d.includes('s')) h = Math.max(1, Math.min(4000, Math.round(h0 + (cY(ev) - sy) / zoom)));
       ghost.hidden = false; ghost.style.width = w * zoom + 'px'; ghost.style.height = h * zoom + 'px';
       q('.pt-size').textContent = `${w} × ${h}px`;
     };
@@ -1056,7 +1076,7 @@ function openPaint() {
     else if (d.op) stroke(g, d.op, ...d.a, d.c, d.w);
   });
   const width = () => tool === 'pencil' ? 2 : tool === 'eraser' ? size * 2 : size;
-  const at = e => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  const at = e => { const r = lrect(cv); return [(cX(e) - r.left) * cv.width / r.width, (cY(e) - r.top) * cv.height / r.height]; };
   function stroke(ctx, kind, x1, y1, x2, y2, color, w) {
     ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath();
     if (kind === 'rect') ctx.rect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
@@ -1528,8 +1548,8 @@ function openPinball() {
   cv.addEventListener('pointerdown', e => {
     cv.setPointerCapture(e.pointerId);
     if (over || ball.onPlunger) { pressed = 'plunge'; return plunge(true); }
-    const r = cv.getBoundingClientRect();
-    pressed = e.clientX - r.left < r.width / 2 ? 0 : 1; flip(pressed, true);
+    const r = lrect(cv);
+    pressed = cX(e) - r.left < r.width / 2 ? 0 : 1; flip(pressed, true);
   });
   const release = () => { if (pressed === 'plunge') plunge(false); else if (pressed != null) flip(pressed, false); pressed = null; };
   cv.addEventListener('pointerup', release);
@@ -1641,9 +1661,9 @@ function openSnake() {
   };
   document.addEventListener('keydown', onKey);
   let sx = 0, sy = 0;
-  cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerdown', e => { sx = cX(e); sy = cY(e); cv.setPointerCapture(e.pointerId); });
   cv.addEventListener('pointerup', e => {
-    const dx = e.clientX - sx, dy = e.clientY - sy;
+    const dx = cX(e) - sx, dy = cY(e) - sy;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) { if (state === 'ready') turn('right'); else pause(); return; }
     resume();
     turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
@@ -1815,20 +1835,20 @@ function openSolitaire() {
   let drag = null;
   board.addEventListener('pointerdown', e => {
     if (drag || e.button > 0) return;
-    const sr = slots.stock.getBoundingClientRect(); // a quick second click can land on the card still sliding off the deck
-    if (e.clientX >= sr.left && e.clientX <= sr.right && e.clientY >= sr.top && e.clientY <= sr.bottom) return ask({ draw: 1 }, draw);
+    const sr = lrect(slots.stock); // a quick second click can land on the card still sliding off the deck
+    if (cX(e) >= sr.left && cX(e) <= sr.right && cY(e) >= sr.top && cY(e) <= sr.bottom) return ask({ draw: 1 }, draw);
     const ce = e.target.closest('.sol-card');
     if (!ce) return;
     const k = ce.dataset.k, i = +ce.dataset.i, src = pile(k);
     if (k === 'stock') return ask({ draw: 1 }, draw);
     if (!src[i] || !src[i].up || (k[0] !== 't' && i !== src.length - 1)) return; // only the top card leaves the waste or a foundation
-    const cards = src.slice(i), r = board.getBoundingClientRect();
-    drag = { k, i, cards, x: e.clientX, y: e.clientY, moved: false, starts: cards.map(c => [parseFloat(els[c.id].style.left), parseFloat(els[c.id].style.top)]), r };
+    const cards = src.slice(i), r = lrect(board);
+    drag = { k, i, cards, x: cX(e), y: cY(e), moved: false, starts: cards.map(c => [parseFloat(els[c.id].style.left), parseFloat(els[c.id].style.top)]), r };
     board.setPointerCapture(e.pointerId);
   });
   board.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    const dx = cX(e) - drag.x, dy = cY(e) - drag.y;
     if (!drag.moved && Math.hypot(dx, dy) < 5) return;
     if (!drag.moved) { drag.moved = true; drag.cards.forEach((c, j) => { const ce = els[c.id]; ce.classList.add('drag'); ce.style.zIndex = 1000 + j; }); }
     drag.cards.forEach((c, j) => { const ce = els[c.id]; ce.style.left = drag.starts[j][0] + dx + 'px'; ce.style.top = drag.starts[j][1] + dy + 'px'; });
@@ -1839,7 +1859,7 @@ function openSolitaire() {
     d.cards.forEach(c => els[c.id].classList.remove('drag'));
     if (!d.moved) { if (!cancel) ask({ smart: [d.k, d.i] }, () => smartMove(d.k, d.i)); return; }
     // drop on whichever pile the middle of the lead card is over
-    const cx = d.starts[0][0] + e.clientX - d.x + L.cw / 2, cy = d.starts[0][1] + e.clientY - d.y + L.ch / 2;
+    const cx = d.starts[0][0] + cX(e) - d.x + L.cw / 2, cy = d.starts[0][1] + cY(e) - d.y + L.ch / 2;
     const col = Math.floor((cx - L.colX(0) + L.gap / 2) / (L.cw + L.gap));
     const to = col < 0 || col > 6 ? null : cy < L.tabY - L.gap / 2 ? (col >= 3 ? 'f' + (col - 3) : null) : 't' + col;
     const ok = !cancel && to && to !== d.k && canDrop(d.cards, to);
@@ -2401,9 +2421,9 @@ function open2048() {
   const onKey = e => { if (!W.el.classList.contains('active') || !(e.key in KEYS) || e.target.matches?.('input, textarea')) return; e.preventDefault(); move(KEYS[e.key]); };
   document.addEventListener('keydown', onKey);
   const bd = q('.tz-board'); let sx = 0, sy = 0;
-  bd.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; });
+  bd.addEventListener('pointerdown', e => { sx = cX(e); sy = cY(e); });
   bd.addEventListener('pointerup', e => {
-    const dx = e.clientX - sx, dy = e.clientY - sy; if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
+    const dx = cX(e) - sx, dy = cY(e) - sy; if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;
     move(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 1 : 3) : (dy > 0 ? 2 : 0));
   });
   W.onClose = () => { document.removeEventListener('keydown', onKey); g2048Win = null; };
@@ -2815,7 +2835,7 @@ function openPixelPaint() {
     if (center) render();
   }
   function setZoom(z, cx, cy) {
-    const r = area.getBoundingClientRect(), ox = (cx ?? r.left + r.width / 2) - r.left, oy = (cy ?? r.top + r.height / 2) - r.top;
+    const r = lrect(area), ox = (cx ?? r.left + r.width / 2) - r.left, oy = (cy ?? r.top + r.height / 2) - r.top;
     const px0 = (area.scrollLeft + ox - stage.offsetLeft) / zoom, py0 = (area.scrollTop + oy - stage.offsetTop) / zoom;
     zoom = Math.max(1, Math.min(64, z)); render();
     area.scrollLeft = px0 * zoom + stage.offsetLeft - ox; area.scrollTop = py0 * zoom + stage.offsetTop - oy;
@@ -2897,11 +2917,11 @@ function openPixelPaint() {
   q('.pxp-fbtns').append(fpsIn);
 
   // pointer: left draws color 1, right color 2; middle button or Space+drag pans; wheel zooms
-  const at = e => { const r = cv.getBoundingClientRect(); return [Math.floor((e.clientX - r.left) / r.width * w), Math.floor((e.clientY - r.top) / r.height * h)]; };
+  const at = e => { const r = lrect(cv); return [Math.floor((cX(e) - r.left) / r.width * w), Math.floor((cY(e) - r.top) / r.height * h)]; };
   let drag = null, spaceDown = false;
   ui.addEventListener('contextmenu', e => e.preventDefault());
   ui.addEventListener('pointerdown', e => {
-    if (e.button === 1 || spaceDown) { drag = { pan: true, x: e.clientX, y: e.clientY, sl: area.scrollLeft, st: area.scrollTop }; ui.setPointerCapture(e.pointerId); return; }
+    if (e.button === 1 || spaceDown) { drag = { pan: true, x: cX(e), y: cY(e), sl: area.scrollLeft, st: area.scrollTop }; ui.setPointerCapture(e.pointerId); return; }
     if (e.button !== 0 && e.button !== 2) return;
     const [x, y] = at(e), color = e.button === 2 ? c2 : c1;
     ui.setPointerCapture(e.pointerId);
@@ -2926,7 +2946,7 @@ function openPixelPaint() {
     hover = inside(x, y) ? [x, y] : null;
     q('.pxp-pos').textContent = hover ? `${x}, ${y}` : '';
     if (!drag) { drawUi(); return; }
-    if (drag.pan) { area.scrollLeft = drag.sl - (e.clientX - drag.x); area.scrollTop = drag.st - (e.clientY - drag.y); return; }
+    if (drag.pan) { area.scrollLeft = drag.sl - (cX(e) - drag.x); area.scrollTop = drag.st - (cY(e) - drag.y); return; }
     if (drag.paint) { line(drag.lx, drag.ly, x, y, (px, py) => plot(px, py, drag.c, tool === 'dither')); drag.lx = x; drag.ly = y; render(); if (pending.length > 600) flush(); return; }
     if (drag.move) { float.x = x - drag.ox; float.y = y - drag.oy; sel = { x: float.x, y: float.y, w: float.w, h: float.h }; render(); return; }
     let x1 = x, y1 = y;
@@ -2955,7 +2975,7 @@ function openPixelPaint() {
   };
   ui.addEventListener('pointerup', up); ui.addEventListener('pointercancel', up);
   ui.addEventListener('pointerleave', () => { hover = null; drawUi(); });
-  area.addEventListener('wheel', e => { e.preventDefault(); zoomStep(e.deltaY < 0 ? 1 : -1, e.clientX, e.clientY); }, { passive: false });
+  area.addEventListener('wheel', e => { e.preventDefault(); zoomStep(e.deltaY < 0 ? 1 : -1, cX(e), cY(e)); }, { passive: false });
 
   // keys (only while this window is the active one)
   const KEYTOOLS = Object.fromEntries(PX_TOOLS.map(t => [t[3], t[0]]));
@@ -3138,12 +3158,12 @@ icons.forEach(d => {
     if (e.ctrlKey || e.metaKey) { d.classList.toggle('sel'); return; }
     const wasSel = d.classList.contains('sel');
     if (e.shiftKey) d.classList.add('sel'); else if (!wasSel) selectOnly([d]);
-    drag = { x: e.clientX, y: e.clientY, moving: false, wasSel, shift: e.shiftKey, group: selected() };
+    drag = { x: cX(e), y: cY(e), moving: false, wasSel, shift: e.shiftKey, group: selected() };
     d.setPointerCapture(e.pointerId);
   });
   d.addEventListener('pointermove', e => {
     if (!drag) return;
-    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    const dx = cX(e) - drag.x, dy = cY(e) - drag.y;
     if (!drag.moving && Math.hypot(dx, dy) < 5) return;
     drag.moving = true;
     drag.group.forEach(g => { g.classList.add('dragging'); g.style.transform = `translate(${dx}px, ${dy}px)`; });
@@ -3152,7 +3172,7 @@ icons.forEach(d => {
     if (!drag) return;
     const { x, y, moving, wasSel, shift, group } = drag; drag = null;
     group.forEach(g => { g.classList.remove('dragging'); g.style.transform = ''; });
-    if (moving && e.type === 'pointerup') moveIcons(group, Math.round((e.clientX - x) / GRID_W), Math.round((e.clientY - y) / GRID_H));
+    if (moving && e.type === 'pointerup') moveIcons(group, Math.round((cX(e) - x) / GRID_W), Math.round((cY(e) - y) / GRID_H));
     else if (!moving && wasSel && !shift && e.type === 'pointerup') selectOnly([d]);
   };
   d.addEventListener('pointerup', endDrag);
@@ -3177,16 +3197,16 @@ dEl.addEventListener('pointerdown', e => {
   const base = e.ctrlKey || e.metaKey ? selected() : [];
   selectOnly(base);
   if (e.pointerType === 'touch') return;
-  const r0 = dEl.getBoundingClientRect();
-  box = { x: e.clientX, y: e.clientY, base, el: el('<div class="selbox"></div>'), r0 };
+  const r0 = lrect(dEl);
+  box = { x: cX(e), y: cY(e), base, el: el('<div class="selbox"></div>'), r0 };
   dEl.append(box.el); dEl.setPointerCapture(e.pointerId);
 });
 dEl.addEventListener('pointermove', e => {
   if (!box) return;
-  const l = Math.min(box.x, e.clientX), t = Math.min(box.y, e.clientY), rr = Math.max(box.x, e.clientX), b = Math.max(box.y, e.clientY);
+  const l = Math.min(box.x, cX(e)), t = Math.min(box.y, cY(e)), rr = Math.max(box.x, cX(e)), b = Math.max(box.y, cY(e));
   Object.assign(box.el.style, { left: l - box.r0.left + 'px', top: t - box.r0.top + 'px', width: rr - l + 'px', height: b - t + 'px' });
   tellBox([l - box.r0.left, t - box.r0.top, rr - l, b - t]);
-  selectOnly([...box.base, ...icons.filter(d => { const q = d.getBoundingClientRect(); return q.left < rr && q.right > l && q.top < b && q.bottom > t; })]);
+  selectOnly([...box.base, ...icons.filter(d => { const q = lrect(d); return q.left < rr && q.right > l && q.top < b && q.bottom > t; })]);
 });
 const endBox = () => { if (box) { box.el.remove(); box = null; tellBox(null); } };
 dEl.addEventListener('pointerup', endBox);
@@ -3204,8 +3224,8 @@ dEl.addEventListener('contextmenu', e => {
     ['Reset icon positions', () => { iconPos = {}; store.set('desktop-pos', iconPos); layout(); }],
   ].map(([label, fn]) => { const b = el('<button></button>'); b.textContent = label; b.onclick = () => { closeCtx(); fn(); }; return b; }));
   ctx.hidden = false;
-  ctx.style.left = Math.min(e.clientX, innerWidth - ctx.offsetWidth - 4) + 'px';
-  ctx.style.top = Math.min(e.clientY, innerHeight - ctx.offsetHeight - 4) + 'px';
+  ctx.style.left = Math.min(cX(e), innerWidth - ctx.offsetWidth - 4) + 'px';
+  ctx.style.top = Math.min(cY(e), innerHeight - ctx.offsetHeight - 4) + 'px';
 });
 document.addEventListener('pointerdown', e => { if (!ctx.hidden && !ctx.contains(e.target)) closeCtx(); });
 addEventListener('resize', layout);
@@ -3381,7 +3401,7 @@ volBtn.onclick = e => {
   if (!cal.hidden) { cal.hidden = true; tray.classList.remove('on'); }
   if (!volPop.hidden) return closeVol();
   volPop.hidden = false; volBtn.classList.add('on');
-  const r = volBtn.getBoundingClientRect();
+  const r = lrect(volBtn);
   volPop.style.left = Math.max(4, Math.min(innerWidth - volPop.offsetWidth - 4, r.left + r.width / 2 - volPop.offsetWidth / 2)) + 'px';
   volRange.focus();
 };
@@ -3540,7 +3560,7 @@ let curMsg = null, curTimer = null;
 function sendCursor(e, down) {
   if (!live()) return;
   const w = e.target.closest && e.target.closest('.win'), W = w && wins.find(o => o.el === w && o.sid);
-  curMsg = W ? { t: 'cur', w: W.sid, x: e.clientX - w.offsetLeft, y: e.clientY - w.offsetTop } : { t: 'cur', x: e.clientX, y: e.clientY };
+  curMsg = W ? { t: 'cur', w: W.sid, x: cX(e) - w.offsetLeft, y: cY(e) - w.offsetTop } : { t: 'cur', x: cX(e), y: cY(e) };
   if (down) { curMsg.down = 1; mpSend(curMsg); curMsg = null; return; }
   if (!curTimer) curTimer = setTimeout(() => { curTimer = null; if (curMsg) mpSend(curMsg); curMsg = null; }, 40);
 }

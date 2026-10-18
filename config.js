@@ -67,6 +67,15 @@ const ASSETS = {
   },
 };
 
+/* ---------- DISPLAY ----------
+   So everyone sees the site the same, whatever their screen: the desktop is laid out on a virtual
+   screen `height` units tall and scaled to fit the browser window (bigger screens see everything
+   bigger, not more squeezed-in). Phones keep their own layout. scale: false turns this off. */
+const DISPLAY = {
+  scale:  true,
+  height: 900,
+};
+
 /* ---------- LOADING SCREEN ----------
    Shown while the site loads. text: {name} becomes SITE_NAME. minTime: shortest time it shows (ms). */
 const LOADING_SCREEN = {

@@ -443,3 +443,26 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .boot-bar i{position:absolute;top:1px;bottom:1px;width:36px;border-radius:2px;background:linear-gradient(90deg,transparent,#b892ff,#e3d4ff,#b892ff,transparent);animation:boot-slide 1.3s linear infinite}
 @keyframes boot-slide{from{left:-40px}to{left:184px}}
 @media (prefers-reduced-motion:reduce){.boot-logo,.boot-bar i{animation:none}}
+
+/* login screen */
+#login{position:fixed;inset:0;z-index:99990;display:flex;align-items:center;justify-content:center;color:#fff;background:#14092a center/cover no-repeat;transition:opacity .45s}
+#login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,rgba(40,20,80,.35),rgba(5,3,12,.8));backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#login[hidden]{display:none}
+#login.out{opacity:0;pointer-events:none}
+.lg-in{position:relative;display:flex;flex-direction:column;align-items:center;gap:14px;margin-top:-40px}
+.lg-pic{width:128px;height:128px;padding:8px;border-radius:10px;background:linear-gradient(rgba(255,255,255,.55),rgba(255,255,255,.18));box-shadow:0 0 0 1px rgba(255,255,255,.5) inset,0 4px 20px rgba(0,0,0,.6)}
+.lg-pic img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
+.lg-name{font:300 26px var(--font-ui);text-shadow:0 2px 8px #000}
+.lg-row{display:flex;gap:6px;align-items:center}
+.lg-pw{width:200px;height:28px;padding:0 8px;border:1px solid rgba(0,0,0,.6);border-radius:3px;font:14px var(--font-ui);color:#111;background:#fff;box-shadow:0 0 0 1px rgba(255,255,255,.4)}
+.lg-pw:focus{outline:2px solid rgba(190,150,255,.9);outline-offset:1px}
+.lg-go{width:30px;height:30px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.6);cursor:pointer;color:#fff;font-size:15px;line-height:1;background:linear-gradient(#9d7bdc,#5b2fa8);box-shadow:0 1px 4px rgba(0,0,0,.6)}
+.lg-go:hover{filter:brightness(1.2)}
+.lg-hint{min-height:16px;font-size:12px;opacity:.75;text-shadow:0 1px 3px #000}
+.lg-wait{display:flex;align-items:center;gap:12px;font:300 24px var(--font-ui);text-shadow:0 2px 8px #000}
+.lg-wait[hidden]{display:none}
+.lg-wait i{width:22px;height:22px;border:3px solid rgba(255,255,255,.25);border-top-color:#d9c6ff;border-radius:50%;animation:lg-spin .8s linear infinite}
+@keyframes lg-spin{to{transform:rotate(360deg)}}
+.lg-brand{position:absolute;bottom:28px;left:0;right:0;text-align:center;font:300 18px var(--font-ui);letter-spacing:1px;opacity:.7;text-shadow:0 1px 4px #000}
+@media (prefers-reduced-motion:reduce){.lg-wait i{animation:none}}
+.lg-row[hidden],.lg-hint[hidden]{display:none}

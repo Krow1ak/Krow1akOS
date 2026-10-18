@@ -68,6 +68,16 @@ const LOADING_SCREEN = {
   minTime: 1200,
 };
 
+/* ---------- LOG IN SCREEN ----------
+   Comes after the loading screen: your avatar and OWNER_NAME with a password box.
+   It's pretend: any password (or none) logs in. hint: small text under the box ('' = none).
+   welcomeTime: how long "Welcome" shows (ms). */
+const LOGIN_SCREEN = {
+  enabled:     true,
+  hint:        'Type any password and press Enter',
+  welcomeTime: 1300,
+};
+
 /* ---------- WINDOW LOOK ----------
    color / inactiveColor: frame color of the front window / windows behind it.
      Any CSS color: '#ff88cc', 'rgb(255,136,204)', or 'rgba(255,136,204,.6)'

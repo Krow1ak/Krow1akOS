@@ -43,18 +43,37 @@ function loadText(n) {
   return fetchText(n.file).catch(() => `Couldn't open ${n.file}\n\nCheck that the file exists in the content folder.\nIf you opened index.html straight from your computer, run\nstart-local-server.bat (or upload the site) so the browser\nis allowed to read the txt files.`);
 }
 
+/* ---------- log in screen ---------- */
+// After loading, a pretend log in: any password (even none) is accepted.
+const login = document.getElementById('login');
+if (LOGIN_SCREEN.enabled) {
+  login.hidden = false;
+  login.style.backgroundImage = `url("${ASSETS.wallpaper}")`;
+  login.querySelector('.lg-pic img').src = ASSETS.avatar;
+  login.querySelector('.lg-name').textContent = OWNER_NAME;
+  login.querySelector('.lg-brand').textContent = SITE_NAME;
+  login.querySelector('.lg-hint').textContent = LOGIN_SCREEN.hint || '';
+  login.onsubmit = e => {
+    e.preventDefault();
+    login.querySelector('.lg-row').hidden = true; login.querySelector('.lg-hint').hidden = true;
+    login.querySelector('.lg-wait').hidden = false;
+    setTimeout(() => { login.classList.add('out'); setTimeout(() => login.remove(), 500); }, LOGIN_SCREEN.welcomeTime ?? 1300);
+  };
+} else login.remove();
+const focusLogin = () => { if (login.isConnected) login.querySelector('.lg-pw').focus(); };
+
 /* ---------- loading screen ---------- */
 // stays up until the wallpaper and icons have loaded (at least LOADING_SCREEN.minTime, at most 8 seconds)
 (function boot() {
   const b = document.getElementById('boot');
-  if (!LOADING_SCREEN.enabled) { b.remove(); return; }
+  if (!LOADING_SCREEN.enabled) { b.remove(); focusLogin(); return; }
   b.querySelector('.boot-logo').style.backgroundImage = `url("${ASSETS.startOrb}")`;
   b.querySelector('.boot-text').textContent = (LOADING_SCREEN.text || 'Starting {name}').replace('{name}', SITE_NAME);
   const t0 = performance.now();
   let done = false;
   const hide = () => {
     if (done) return; done = true;
-    setTimeout(() => { b.classList.add('out'); setTimeout(() => b.remove(), 600); }, Math.max(0, (LOADING_SCREEN.minTime ?? 1200) - (performance.now() - t0)));
+    setTimeout(() => { b.classList.add('out'); focusLogin(); setTimeout(() => b.remove(), 600); }, Math.max(0, (LOADING_SCREEN.minTime ?? 1200) - (performance.now() - t0)));
   };
   if (document.readyState === 'complete') hide(); else addEventListener('load', hide);
   setTimeout(hide, 8000);

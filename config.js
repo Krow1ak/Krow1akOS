@@ -96,11 +96,14 @@ const SOUND = {
    it sees the same desktop: each other's mouse, the same windows, Paint, games, songs...
    Browsers connect straight to each other, so there's no server or database to run.
    enabled: false hides the button.
+   relays: free public "Nostr" servers that only help browsers find each other (no game data
+     goes through them). More of them = more likely to connect. Any wss:// Nostr relay works.
    turn: only needed if people on strict networks (school, work) can't connect. Get a free
      TURN server (e.g. from metered.ca) and put it here:
      [{ urls: 'turn:example.com:3478', username: '...', credential: '...' }] */
 const MULTIPLAYER = {
   enabled: true,
+  relays: ['relay.damus.io', 'nos.lol', 'relay.primal.net', 'nostr.mom', 'relay.snort.social', 'offchain.pub', 'relay.nostr.net', 'nostr.oxtr.dev'],
   turn: null,
 };
 

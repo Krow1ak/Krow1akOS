@@ -646,9 +646,16 @@ function openMsLeaderboard(level = 'Beginner') {
 /* ---------- daily wordle ---------- */
 const WORDLE_START = Date.UTC(2026, 9, 16); // puzzle #1
 let wordWin = null, wordsP = null;
+// The answers are stored scrambled and in a random order, so the day's word can't just be read
+// off the file. (Anything a browser can check can still be dug out by someone determined.)
+const unscramble = s => {
+  const key = 'krowos-wordle', b = atob(s);
+  const out = Array.from(b, (c, i) => String.fromCharCode(c.charCodeAt(0) ^ key.charCodeAt(i % key.length) ^ (i * 7 & 255))).join('');
+  return out.match(/.{5}/g);
+};
 const loadWords = () => wordsP ||= fetch('assets/wordle/words.json')
   .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
-  .then(d => ({ answers: d.answers, allowed: new Set([...d.answers, ...d.guesses.split(' ')]) }))
+  .then(d => ({ answers: unscramble(d.a), allowed: new Set(d.guesses.split(' ')) }))
   .catch(err => { wordsP = null; throw err; });
 function scoreGuess(guess, answer) { // 'correct' | 'present' | 'absent' per letter, counting repeated letters properly
   const res = Array(5).fill('absent'), left = {};
@@ -665,7 +672,7 @@ function openWordle() {
   const today = dayKey(), num = Math.round((Date.parse(today) - WORDLE_START) / 864e5) + 1;
   q('.wd-no').textContent = `Daily Wordle #${num}`;
   let words = null, answer = '', cur = '', msgTimer = null, clock = null;
-  const state = store.get(`wordle:${today}`, { guesses: [], done: false, won: false });
+  const state = store.get(`wordle2:${today}`, { guesses: [], done: false, won: false });
   const say = (t, ms = 1600) => { msgEl.textContent = t; clearTimeout(msgTimer); if (ms) msgTimer = setTimeout(() => { msgEl.textContent = ''; }, ms); };
 
   gridEl.append(...Array.from({ length: 6 }, () => el('<div class="wd-row">' + '<div class="wd-t"></div>'.repeat(5) + '</div>')));
@@ -717,7 +724,7 @@ function openWordle() {
     if (cur === answer) state.done = state.won = true;
     else if (state.guesses.length === 6) state.done = true;
     cur = '';
-    store.set(`wordle:${today}`, state);
+    store.set(`wordle2:${today}`, state);
     render();
     if (state.done) finish();
   }
@@ -1808,7 +1815,7 @@ applyVolume();
 // other, so there's no server or database; the shared desktop lives in the open browsers.
 const MP_COLORS = ['#e8445a', '#f08c2e', '#e6c229', '#3bb273', '#2fa7d8', '#5b6ee1', '#a35bd8', '#e55fae'];
 const me = { name: store.get('mp-name', `Guest ${100 + Math.floor(Math.random() * 900)}`), color: store.get('mp-color', MP_COLORS[Math.floor(Math.random() * MP_COLORS.length)]) };
-let room = null, roomCode = '', since = 0, synced = false, mpPanel = null;
+let room = null, roomCode = '', since = 0, synced = false, mpPanel = null, mpLib = null, mpError = '';
 const mpBtn = document.getElementById('mpb');
 const roomFromUrl = () => (location.hash.match(/room=([\w-]+)/) || [])[1] || '';
 const inviteLink = () => `${location.origin}${location.pathname}#room=${roomCode}`;
@@ -1823,11 +1830,13 @@ const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.c
 async function joinRoom(code) {
   if (room) await leaveRoom();
   roomCode = code.toLowerCase().replace(/[^\w-]/g, '').slice(0, 32); if (!roomCode) return;
-  let lib;
-  try { lib = await import('./assets/vendor/trystero.js'); }
+  try { mpLib ||= await import('./assets/vendor/trystero.js'); }
   catch { toast("Couldn't load multiplayer. Open the site from a web server, not straight from a file."); roomCode = ''; return; }
-  since = Date.now(); synced = false;
-  room = lib.joinRoom({ appId: `krowos-${SITE_NAME}`, password: roomCode, ...(MULTIPLAYER.turn ? { turnConfig: MULTIPLAYER.turn } : {}) }, roomCode);
+  since = Date.now(); synced = false; mpError = '';
+  const config = { appId: `krowos-${SITE_NAME}`, password: roomCode };
+  if (MULTIPLAYER.relays && MULTIPLAYER.relays.length) config.relayConfig = { urls: MULTIPLAYER.relays.map(u => u.includes('://') ? u : 'wss://' + u) };
+  if (MULTIPLAYER.turn) config.turnConfig = MULTIPLAYER.turn;
+  room = mpLib.joinRoom(config, roomCode, { onJoinError: e => { mpError = e.error || String(e); refreshMp(); } });
   const action = room.makeAction('m');
   mp.send = (m, to) => { action.send(m, to ? { target: to } : undefined).catch(() => {}); };
   action.onMessage = (m, { peerId }) => receive(m, peerId);
@@ -1919,7 +1928,7 @@ function openMpPanel() {
     W.body.innerHTML = `<div class="mpp"><label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
       + (room
         ? `<div class="mp-box"><div>Room <b class="mp-code">${esc(roomCode)}</b></div><div class="mp-link"><input class="mp-url" readonly><button class="okbtn mp-copy">Copy link</button></div>`
-          + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div></div>`
+          + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div><div class="mp-status"></div></div>`
           + `<h4>Here now</h4><ul class="mp-people">${people}</ul><button class="okbtn mp-leave">Leave room</button>`
         : `<div class="mp-box"><button class="okbtn mp-new">Start a room</button><div class="dim">You get a link to send. Whoever opens it sees your desktop, mouse and windows live.</div></div>`
           + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code" aria-label="Room code"><button class="okbtn">Join</button></div></form>`)
@@ -1928,6 +1937,7 @@ function openMpPanel() {
     name.onchange = () => { me.name = name.value.trim().slice(0, 24) || me.name; store.set('mp-name', me.name); hello(); W.render(); };
     W.body.querySelectorAll('.mp-sw').forEach(b => b.onclick = () => { me.color = b.dataset.c; store.set('mp-color', me.color); hello(); W.render(); });
     if (room) {
+      W.status();
       q('.mp-url').value = inviteLink();
       q('.mp-copy').onclick = () => { navigator.clipboard.writeText(inviteLink()).then(() => toast('Link copied'), () => q('.mp-url').select()); };
       q('.mp-leave').onclick = () => leaveRoom();
@@ -1936,7 +1946,19 @@ function openMpPanel() {
       q('.mp-join').onsubmit = e => { e.preventDefault(); const c = q('.mp-in').value.trim(); if (c) joinRoom(c.replace(/.*room=/, '')); };
     }
   };
-  W.onClose = () => { mpPanel = null; };
+  // connection check, so it's clear what's wrong when nobody shows up
+  W.status = () => {
+    const box = q('.mp-status'); if (!box || !room) return;
+    const socks = Object.values(mpLib.getRelaySockets ? mpLib.getRelaySockets() : {}), up = socks.filter(ws => ws && ws.readyState === 1).length;
+    let text = `Helper servers reachable: ${up} of ${socks.length}`, bad = !up;
+    if (mpError) {
+      bad = true;
+      text += /SDP|TURN/i.test(mpError) ? ' · Found someone, but one of your networks blocked the direct connection. A TURN server fixes this (see MULTIPLAYER in config.js).' : ` · ${mpError}`;
+    } else if (!up) text += ' · Your network or an ad blocker may be blocking them.';
+    box.textContent = text; box.classList.toggle('bad', bad);
+  };
+  const statusTimer = setInterval(W.status, 1500);
+  W.onClose = () => { clearInterval(statusTimer); mpPanel = null; };
   mpPanel = W; W.render();
   return W;
 }

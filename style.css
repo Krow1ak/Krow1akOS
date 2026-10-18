@@ -246,6 +246,8 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .mp-people li{display:flex;align-items:center;gap:6px}
 .mp-people i{width:10px;height:10px;border-radius:50%}
 .mp-leave{align-self:flex-start}
+.mp-status{font-size:11px;color:#2b6e2b}
+.mp-status.bad{color:#b3261e}
 .mp-fine{margin-top:auto;font-size:11px}
 
 /* leaderboard */

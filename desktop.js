@@ -7,14 +7,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', paint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -137,6 +137,8 @@ function openNode(n, folder) {
   if (n.type === 'wordle') return openWordle();
   if (n.type === 'paint') return openPaint();
   if (n.type === 'pinball') return openPinball();
+  if (n.type === 'snake') return openSnake();
+  if (n.type === 'solitaire') return openSolitaire();
   if (n.type === 'audio') return openPlayer(n, folder);
   if (n.type === 'browser') return openBrowser(n.url);
 }
@@ -1044,6 +1046,291 @@ function openPinball() {
   return W;
 }
 
+/* ---------- snake ---------- */
+let snWin = null;
+function openSnake() {
+  if (snWin) { focusWin(snWin); return snWin; }
+  const N = 20, C = 20, S = N * C;
+  const W = makeWin({ title: 'Snake', icon: I.snake, w: 440, h: 540 });
+  W.body.innerHTML = `<div class="sn"><div class="sn-top"><span class="sn-score"></span><span class="sn-best"></span></div><div class="sn-wrap"><canvas class="sn-c" width="${S}" height="${S}" aria-label="Snake board"></canvas></div>`
+    + '<div class="sn-help">Arrow keys or WASD to steer · P or Space to pause<br>Touch: swipe to steer, tap to start</div></div>';
+  const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
+  const scoreEl = W.body.querySelector('.sn-score'), bestEl = W.body.querySelector('.sn-best');
+  const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  let snake, dir, queue, food, score, best = store.get('snake-best', 0), state, acc = 0, last = 0, raf = 0;
+  const speed = () => Math.max(60, 140 - score / 10 * 4); // ms per step, faster with every apple
+  function placeFood() {
+    const free = [];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) if (!snake.some(p => p[0] === x && p[1] === y)) free.push([x, y]);
+    food = free[Math.floor(Math.random() * free.length)];
+  }
+  function newGame() {
+    snake = [[8, 10], [7, 10], [6, 10]]; dir = DIRS.right; queue = []; score = 0; state = 'ready'; acc = 0;
+    placeFood(); updateText();
+  }
+  function updateText() { scoreEl.textContent = `Score ${score}`; bestEl.textContent = `Best ${best}`; }
+  function turn(name) {
+    if (state === 'over') return;
+    const d = DIRS[name], prev = queue.length ? queue[queue.length - 1] : dir;
+    if (queue.length < 3 && d !== prev && (d[0] !== -prev[0] || d[1] !== -prev[1])) queue.push(d);
+    if (state !== 'playing') state = 'playing';
+  }
+  function step() {
+    if (queue.length) dir = queue.shift();
+    const head = [snake[0][0] + dir[0], snake[0][1] + dir[1]];
+    const eating = head[0] === food[0] && head[1] === food[1];
+    const body = eating ? snake : snake.slice(0, -1); // the tail moves out of the way unless we grow
+    if (head[0] < 0 || head[1] < 0 || head[0] >= N || head[1] >= N || body.some(p => p[0] === head[0] && p[1] === head[1])) {
+      state = 'over';
+      if (score > best) { best = score; store.set('snake-best', best); }
+      updateText(); return;
+    }
+    snake = [head, ...body];
+    if (eating) { score += 10; updateText(); if (snake.length === N * N) { state = 'over'; return; } placeFood(); }
+  }
+
+  function draw() {
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { g.fillStyle = (x + y) % 2 ? '#a7d948' : '#8ecc39'; g.fillRect(x * C, y * C, C, C); }
+    g.fillStyle = '#e7471d'; g.beginPath(); g.arc(food[0] * C + C / 2, food[1] * C + C / 2 + 1, C * 0.4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#5a8f29'; g.fillRect(food[0] * C + C / 2 - 1, food[1] * C + 1, 3, 5);
+    snake.forEach((p, k) => {
+      const t = k / Math.max(1, snake.length - 1);
+      g.fillStyle = `rgb(${Math.round(78 - 30 * t)},${Math.round(124 - 40 * t)},${Math.round(246 - 80 * t)})`;
+      g.beginPath(); g.roundRect(p[0] * C + 1, p[1] * C + 1, C - 2, C - 2, k ? 5 : 7); g.fill();
+    });
+    const [hx, hy] = snake[0], ex = dir[1] ? 4 : 0, ey = dir[0] ? 4 : 0; // eyes sit across the direction of travel
+    g.fillStyle = '#fff';
+    [-1, 1].forEach(s => { g.beginPath(); g.arc(hx * C + C / 2 + dir[0] * 4 + ex * s, hy * C + C / 2 + dir[1] * 4 + ey * s, 3, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = '#111';
+    [-1, 1].forEach(s => { g.beginPath(); g.arc(hx * C + C / 2 + dir[0] * 5 + ex * s, hy * C + C / 2 + dir[1] * 5 + ey * s, 1.5, 0, Math.PI * 2); g.fill(); });
+    let msg = '';
+    if (state === 'over') msg = snake.length === N * N ? 'You win! · Space or tap' : 'GAME OVER · Space or tap';
+    else if (state === 'ready') msg = 'Press an arrow key or swipe';
+    else if (state === 'paused') msg = 'Paused · P or tap to resume';
+    else if (!W.el.classList.contains('active')) msg = 'Paused · click to play';
+    if (msg) {
+      g.fillStyle = '#00000099'; g.fillRect(40, S / 2 - 22, S - 80, 40);
+      g.fillStyle = '#fff'; g.font = 'bold 16px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(msg, S / 2, S / 2 + 4);
+    }
+  }
+  function frame(t) {
+    const dt = Math.min(100, t - last || 0); last = t;
+    if (state === 'playing' && W.el.classList.contains('active')) {
+      acc += dt;
+      while (acc >= speed() && state === 'playing') { acc -= speed(); step(); }
+    }
+    draw();
+    raf = requestAnimationFrame(frame);
+  }
+
+  const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down', ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' };
+  const pause = () => { if (state === 'playing') state = 'paused'; else if (state === 'paused') state = 'playing'; else if (state === 'over') newGame(); };
+  const onKey = e => {
+    if (!W.el.classList.contains('active')) return;
+    if (KEYS[e.key]) { e.preventDefault(); if (state === 'paused') state = 'playing'; turn(KEYS[e.key]); }
+    else if (e.key === ' ' || e.key === 'p' || e.key === 'P') { e.preventDefault(); pause(); }
+  };
+  document.addEventListener('keydown', onKey);
+  let sx = 0, sy = 0;
+  cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointerup', e => {
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) { if (state === 'ready') turn('right'); else pause(); return; }
+    if (state === 'paused') state = 'playing';
+    turn(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onKey); snWin = null; };
+  snWin = W;
+  newGame();
+  raf = requestAnimationFrame(frame);
+  return W;
+}
+
+/* ---------- solitaire (klondike) ---------- */
+const SUITS = ['♠', '♥', '♦', '♣'], RANKS = ['', 'A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const isRed = c => c.s === 1 || c.s === 2;
+let solWin = null;
+function openSolitaire() {
+  if (solWin) { focusWin(solWin); return solWin; }
+  const W = makeWin({ title: 'Solitaire', icon: I.solitaire, w: 640, h: 560 });
+  W.body.innerHTML = '<div class="menu"></div><div class="sol"><div class="sol-board"></div><div class="sol-note" hidden></div></div><div class="status"><span class="sol-st"></span><span class="sol-t"></span></div>';
+  const q = sel => W.body.querySelector(sel);
+  const board = q('.sol-board'), note = q('.sol-note'), stEl = q('.sol-st'), tEl = q('.sol-t');
+  let drawN = store.get('solitaire-draw', 1), st, history, moves, t0, timer = null, els = {}, auto = null;
+  // st: { stock, waste, found[4], tab[7] }, each a list of cards { id, s, r, up }
+  const slot = (k, cls) => { const d = el(`<div class="sol-slot ${cls}"></div>`); d.dataset.k = k; board.append(d); return d; };
+  const slots = { stock: slot('stock', 'stock'), waste: slot('waste', 'none') };
+  for (let i = 0; i < 4; i++) slots['f' + i] = slot('f' + i, 'found');
+  for (let i = 0; i < 7; i++) slots['t' + i] = slot('t' + i, 'none');
+  const pile = k => k === 'stock' ? st.stock : k === 'waste' ? st.waste : k[0] === 'f' ? st.found[+k[1]] : st.tab[+k[1]];
+  const pileKeys = () => ['stock', 'waste', 'f0', 'f1', 'f2', 'f3', 't0', 't1', 't2', 't3', 't4', 't5', 't6'];
+  const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  const clock = () => { tEl.textContent = `Time ${mmss(t0 ? Math.floor((Date.now() - t0) / 1000) : 0)}`; };
+
+  function newGame() {
+    clearInterval(timer); clearTimeout(auto); timer = null; t0 = 0; moves = 0; history = []; note.hidden = true;
+    const deck = [];
+    for (let s = 0; s < 4; s++) for (let r = 1; r <= 13; r++) deck.push({ id: `${s}-${r}`, s, r, up: false });
+    for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+    st = { stock: [], waste: [], found: [[], [], [], []], tab: [] };
+    for (let c = 0; c < 7; c++) { st.tab.push(deck.splice(0, c + 1)); st.tab[c][c].up = true; }
+    st.stock = deck;
+    Object.values(els).forEach(e => e.remove()); els = {};
+    [...st.stock, ...st.tab.flat()].forEach(c => {
+      const e = el(`<div class="sol-card${isRed(c) ? ' red' : ''}"><span class="sol-i">${RANKS[c.r]}<br>${SUITS[c.s]}</span><span class="sol-m">${SUITS[c.s]}</span></div>`);
+      e.dataset.id = c.id; board.append(e); els[c.id] = e;
+    });
+    render();
+  }
+  const begin = () => { if (!t0) { t0 = Date.now(); timer = setInterval(clock, 1000); } };
+  function act(fn) { // every move goes through here so it can be undone
+    history.push(JSON.stringify(st)); if (history.length > 200) history.shift();
+    begin(); fn(); moves++;
+    for (const col of st.tab) if (col.length && !col[col.length - 1].up) col[col.length - 1].up = true;
+    render(); checkWin();
+  }
+  function undo() {
+    if (!history.length) return;
+    clearTimeout(auto); st = JSON.parse(history.pop()); moves++; note.hidden = true; render();
+  }
+
+  // ---- rules ----
+  const top = p => p[p.length - 1];
+  const fitsFound = (c, f) => f.length ? top(f).s === c.s && top(f).r === c.r - 1 : c.r === 1;
+  const fitsTab = (c, col) => col.length ? top(col).up && isRed(top(col)) !== isRed(c) && top(col).r === c.r + 1 : c.r === 13;
+  function canDrop(cards, k) {
+    if (k[0] === 'f') return cards.length === 1 && fitsFound(cards[0], pile(k));
+    if (k[0] === 't') return fitsTab(cards[0], pile(k));
+    return false;
+  }
+  function move(from, n, to) { act(() => { const src = pile(from); pile(to).push(...src.splice(src.length - n, n)); }); }
+  function draw() {
+    if (st.stock.length) act(() => { for (let i = 0; i < drawN && st.stock.length; i++) { const c = st.stock.pop(); c.up = true; st.waste.push(c); } });
+    else if (st.waste.length) act(() => { st.stock = st.waste.reverse().map(c => ({ ...c, up: false })); st.waste = []; });
+  }
+  function smartMove(from, idx) { // clicking a card sends it to the best place it fits
+    const src = pile(from), cards = src.slice(idx);
+    if (cards.length === 1 && from[0] !== 'f') for (let i = 0; i < 4; i++) if (fitsFound(cards[0], st.found[i])) return move(from, 1, 'f' + i);
+    const cols = [0, 1, 2, 3, 4, 5, 6].map(i => 't' + i).filter(k => k !== from);
+    // prefer a column with cards over an empty one, so kings don't hop between empty columns
+    const to = cols.find(k => pile(k).length && canDrop(cards, k)) || (idx > 0 || from[0] !== 't' ? cols.find(k => canDrop(cards, k)) : null);
+    if (to) move(from, cards.length, to);
+    else { cards.forEach(c => els[c.id].classList.add('nope')); setTimeout(() => cards.forEach(c => els[c.id].classList.remove('nope')), 300); }
+  }
+  function checkWin() {
+    if (st.found.every(f => f.length === 13)) {
+      clearInterval(timer); clock();
+      const secs = Math.floor((Date.now() - t0) / 1000), best = Math.min(secs, store.get('solitaire-best', secs));
+      const wins = store.get('solitaire-wins', 0) + 1;
+      store.set('solitaire-best', best); store.set('solitaire-wins', wins);
+      note.innerHTML = `<b>You won!</b><span>${moves} moves in ${mmss(secs)}</span><span>Best time ${mmss(best)} · ${wins} wins</span><button class="okbtn">Play again</button>`;
+      note.querySelector('button').onclick = newGame; note.hidden = false;
+      return;
+    }
+    // once everything is face up and dealt, finish the game for the player
+    if (!st.stock.length && !st.waste.length && st.tab.every(col => col.every(c => c.up))) {
+      auto = setTimeout(() => {
+        for (const k of ['t0', 't1', 't2', 't3', 't4', 't5', 't6']) {
+          const c = top(pile(k)); if (!c) continue;
+          const f = st.found.findIndex(f => fitsFound(c, f));
+          if (f >= 0) return move(k, 1, 'f' + f);
+        }
+      }, 90);
+    }
+  }
+
+  // ---- layout ----
+  let L = {};
+  function render() {
+    const bw = board.clientWidth, bh = board.clientHeight;
+    if (!bw || !bh) return; // minimized
+    const gap = Math.max(4, Math.min(12, bw / 60));
+    const cw = Math.min(80, (bw - gap * 8) / 7, (bh - gap * 3) / 1.4 / 3.2), ch = cw * 1.4;
+    const x0 = (bw - cw * 7 - gap * 6) / 2, colX = i => x0 + i * (cw + gap), tabY = gap + ch + gap * 1.5;
+    L = { cw, ch, gap, colX, tabY };
+    board.style.setProperty('--cw', cw + 'px');
+    const place = (e, x, y) => { e.style.left = x + 'px'; e.style.top = y + 'px'; };
+    place(slots.stock, colX(0), gap); place(slots.waste, colX(1), gap);
+    for (let i = 0; i < 4; i++) place(slots['f' + i], colX(3 + i), gap);
+    for (let i = 0; i < 7; i++) place(slots['t' + i], colX(i), tabY);
+    slots.stock.classList.toggle('empty-recycle', !st.stock.length && !!st.waste.length);
+    let z = 1;
+    const put = (c, x, y, k, i) => {
+      const e = els[c.id]; place(e, x, y); e.style.zIndex = z++;
+      e.classList.toggle('back', !c.up); e.dataset.k = k; e.dataset.i = i;
+    };
+    st.stock.forEach((c, i) => put(c, colX(0) + Math.min(i, 20) * 0.15, gap - Math.min(i, 20) * 0.15, 'stock', i));
+    const fanFrom = st.waste.length - (drawN === 3 ? 3 : 1);
+    st.waste.forEach((c, i) => put(c, colX(1) + Math.max(0, i - fanFrom) * cw * 0.28, gap, 'waste', i));
+    st.found.forEach((f, n) => f.forEach((c, i) => put(c, colX(3 + n), gap, 'f' + n, i)));
+    st.tab.forEach((col, n) => {
+      const downs = col.filter(c => !c.up).length, ups = col.length - downs, room = bh - tabY - ch - gap;
+      let dDown = ch * 0.12, dUp = ch * 0.27;
+      const need = downs * dDown + Math.max(0, ups - 1) * dUp;
+      if (need > room && need > 0) { const s = room / need; dDown *= s; dUp *= s; } // squeeze tall columns to fit
+      let y = tabY;
+      col.forEach((c, i) => { put(c, colX(n), y, 't' + n, i); y += c.up ? dUp : dDown; });
+    });
+    stEl.textContent = `Moves ${moves} · Draw ${drawN === 1 ? 'one' : 'three'}`; clock();
+  }
+  const ro = new ResizeObserver(() => { if (!drag) render(); });
+  ro.observe(board);
+
+  // ---- pointer: click to auto-move, drag to place ----
+  let drag = null;
+  board.addEventListener('pointerdown', e => {
+    if (drag || e.button > 0) return;
+    const ce = e.target.closest('.sol-card'), se = e.target.closest('.sol-slot');
+    if (!ce) { if (se && se.dataset.k === 'stock') draw(); return; }
+    const k = ce.dataset.k, i = +ce.dataset.i, src = pile(k);
+    if (k === 'stock') return draw();
+    if (!src[i].up || (k[0] !== 't' && i !== src.length - 1)) return; // only the top card leaves the waste or a foundation
+    const cards = src.slice(i), r = board.getBoundingClientRect();
+    drag = { k, i, cards, x: e.clientX, y: e.clientY, moved: false, starts: cards.map(c => [parseFloat(els[c.id].style.left), parseFloat(els[c.id].style.top)]), r };
+    board.setPointerCapture(e.pointerId);
+  });
+  board.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    if (!drag.moved) { drag.moved = true; drag.cards.forEach((c, j) => { const ce = els[c.id]; ce.classList.add('drag'); ce.style.zIndex = 1000 + j; }); }
+    drag.cards.forEach((c, j) => { const ce = els[c.id]; ce.style.left = drag.starts[j][0] + dx + 'px'; ce.style.top = drag.starts[j][1] + dy + 'px'; });
+  });
+  const endDrag = (e, cancel) => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    d.cards.forEach(c => els[c.id].classList.remove('drag'));
+    if (!d.moved) { if (!cancel) smartMove(d.k, d.i); return; }
+    // drop on whichever pile the middle of the lead card is over
+    const cx = d.starts[0][0] + e.clientX - d.x + L.cw / 2, cy = d.starts[0][1] + e.clientY - d.y + L.ch / 2;
+    const col = Math.floor((cx - L.colX(0) + L.gap / 2) / (L.cw + L.gap));
+    const to = col < 0 || col > 6 ? null : cy < L.tabY - L.gap / 2 ? (col >= 3 ? 'f' + (col - 3) : null) : 't' + col;
+    if (!cancel && to && to !== d.k && canDrop(d.cards, to)) move(d.k, d.cards.length, to); else render();
+  };
+  board.addEventListener('pointerup', e => endDrag(e, false));
+  board.addEventListener('pointercancel', e => endDrag(e, true));
+  board.addEventListener('contextmenu', e => e.preventDefault());
+  const onKey = e => {
+    if (!W.el.classList.contains('active')) return;
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); }
+    else if (e.key === 'F2') { e.preventDefault(); newGame(); }
+  };
+  document.addEventListener('keydown', onKey);
+
+  menuBar(W, q('.menu'), {
+    Game: [['New game   F2', newGame], ['Undo   Ctrl+Z', undo],
+      ['Draw one', () => { drawN = 1; store.set('solitaire-draw', 1); newGame(); }, () => drawN === 1],
+      ['Draw three', () => { drawN = 3; store.set('solitaire-draw', 3); newGame(); }, () => drawN === 3],
+      ['Close', () => closeWin(W)]],
+  });
+  const prev = W.onClose;
+  W.onClose = () => { prev && prev(); clearInterval(timer); clearTimeout(auto); ro.disconnect(); document.removeEventListener('keydown', onKey); solWin = null; };
+  solWin = W;
+  newGame();
+  return W;
+}
+
 /* ---------- desktop ---------- */
 // Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
 // and drag them to any cell; the layout is remembered in their browser.
@@ -1187,7 +1474,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pinball', 'snake', 'solitaire', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

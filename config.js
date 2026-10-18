@@ -37,6 +37,8 @@ const ASSETS = {
     wordle:      'assets/icons/wordle.png',
     paint:       'assets/icons/paint.png',
     pinball:     'assets/icons/pinball.png',
+    snake:       'assets/icons/snake.png',
+    solitaire:   'assets/icons/solitaire.png',
     music:       'assets/icons/music.png',
     browser:     'assets/icons/browser.png',
   },
@@ -123,6 +125,8 @@ const BROWSER = {
    wordle()                                the daily Wordle
    paint()                                 Paint
    pinball()                               Pinball
+   snake()                                 Snake
+   solitaire()                             Solitaire (Klondike; Game > Draw one / Draw three)
    browser()                               the web browser (home page and bookmarks are in BROWSER above)
    audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
    Any item can take a custom icon:  text('Hi.txt', { icon: 'assets/icons/my-icon.png' })
@@ -171,7 +175,9 @@ const MINESWEEPER = minesweeper();
 const WORDLE = wordle();
 const PAINT = paint();
 const PINBALL = pinball();
-const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, PAINT]);
+const SNAKE = snake();
+const SOLITAIRE = solitaire();
+const GAMES = folder('Games', [MINESWEEPER, WORDLE, PINBALL, SNAKE, SOLITAIRE, PAINT]);
 
 const BROWSER_APP = browser();
 
@@ -199,6 +205,8 @@ function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweep
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
+function snake(opts = {}) { return { name: 'Snake', type: 'snake', ...opts }; }
+function solitaire(opts = {}) { return { name: 'Solitaire', type: 'solitaire', ...opts }; }
 function browser(opts = {}) { return { name: 'Internet', type: 'browser', ...opts }; }
 function audio(name, src, opts = {}) { return { name, type: 'audio', src, ...opts }; }
 function drive(name, free, used, children, opts = {}) { return { name, type: 'drive', free, used, children, ...opts }; }

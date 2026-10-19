@@ -48,6 +48,7 @@ const ASSETS = {
     sudoku:      'assets/icons/sudoku.png',
     music:       'assets/icons/music.png',
     browser:     'assets/icons/browser.png',
+    settings:    'assets/icons/settings.png',
     multiplayer: 'assets/icons/multiplayer.png',
   },
 
@@ -68,11 +69,14 @@ const ASSETS = {
 };
 
 /* ---------- DISPLAY ----------
-   So everyone sees the site the same, whatever their screen: the desktop is laid out on a virtual
-   screen `height` units tall and scaled to fit the browser window (bigger screens see everything
-   bigger, not more squeezed-in). Phones keep their own layout. scale: false turns this off. */
+   So everyone sees the site the same, whatever their screen: the desktop is laid out at a fixed
+   resolution and scaled to fit the browser window (black bars if the screen's shape differs).
+   This is the starting resolution; visitors can change theirs in Settings > Display.
+   width: 0 = no fixed width, fill the screen sideways instead. Phones keep their own layout.
+   scale: false turns all of this off. */
 const DISPLAY = {
   scale:  true,
+  width:  1600,
   height: 900,
 };
 
@@ -147,14 +151,15 @@ const MULTIPLAYER = {
 const DATES_FILE = 'content/dates.txt';
 
 /* ---------- BROWSER ----------
-   home: the page the browser opens on.
+   home: the page the browser opens on. 'start' = the built-in start page with a search box
+     (searches from it are shared in multiplayer); or any web address.
    bookmarks: buttons under the address bar, in order. url '' = not set up yet.
    Spotify / YouTube: paste the normal link (open.spotify.com/playlist/...,
      youtube.com/watch?v=...) and it opens as the embedded player.
    Lots of big sites (YouTube's homepage, Discord, Instagram...) refuse to show
    inside another page; the ↗ button opens the current page in a real tab instead. */
 const BROWSER = {
-  home: 'https://www.google.com/webhp?igu=1',
+  home: 'start',
   bookmarks: [
     { name: 'Google',    url: 'https://www.google.com/webhp?igu=1' },
     { name: 'Spotify',   url: '' },   // your playlist link goes here

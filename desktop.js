@@ -1,24 +1,38 @@
 /* LaisaOS — desktop logic. Content and asset paths live in config.js. */
 (() => {
-/* ---------- screen scale ---------- */
-// Everyone gets the same layout: the whole desktop is drawn on a virtual screen DISPLAY.height units tall,
-// scaled to fit the browser window (wider screens just get more room at the sides). Inside this file
-// innerWidth/innerHeight, mouse positions (cX/cY) and element boxes (lrect) are all in those units.
-const UI = { s: 1 };
+/* ---------- screen resolution ---------- */
+// Everyone gets the same layout: the desktop is drawn on a virtual screen of a fixed resolution (Settings >
+// Display, 1600 × 900 unless changed), scaled to fit the browser window with black bars if the shapes differ.
+// "Fit my screen" keeps the height and fills the width instead. Inside this file innerWidth/innerHeight,
+// mouse positions (cX/cY) and element boxes (lrect) are all in virtual-screen units.
+const UI = { s: 1, ox: 0, oy: 0 };
 let innerWidth = window.innerWidth, innerHeight = window.innerHeight;
+function displayChoice() { // { w, h } fixed, or { w: 0, h } to fill the width
+  const d = typeof DISPLAY === 'object' ? DISPLAY : {};
+  let saved = null; try { saved = JSON.parse(localStorage.getItem('krowos:display')); } catch {}
+  const pick = saved && saved.h ? saved : { w: d.width ?? 1600, h: d.height || 900 };
+  return { w: Math.max(0, pick.w | 0), h: Math.max(400, pick.h | 0) };
+}
 function applyScale() {
-  const vw = window.innerWidth, vh = window.innerHeight, d = typeof DISPLAY === 'object' ? DISPLAY : {};
-  UI.s = d.scale === false || vw <= 640 ? 1 : Math.max(0.5, Math.min(3, vh / (d.height || 900))); // phones keep their own layout
-  innerWidth = vw / UI.s; innerHeight = vh / UI.s;
+  const vw = window.innerWidth, vh = window.innerHeight, d = typeof DISPLAY === 'object' ? DISPLAY : {}, pick = displayChoice();
+  const native = d.scale === false || vw <= 640; // phones keep their own layout
+  if (native) Object.assign(UI, { s: 1, ox: 0, oy: 0, w: vw, h: vh });
+  else if (pick.w) { const k = Math.min(vw / pick.w, vh / pick.h); Object.assign(UI, { s: k, ox: (vw - pick.w * k) / 2, oy: (vh - pick.h * k) / 2, w: pick.w, h: pick.h }); }
+  else Object.assign(UI, { s: vh / pick.h, ox: 0, oy: 0, w: vw * pick.h / vh, h: pick.h });
+  innerWidth = UI.w; innerHeight = UI.h;
   const b = document.body.style, r = document.documentElement.style;
-  if (UI.s === 1) { b.transform = b.width = b.height = ''; }
-  else Object.assign(b, { transform: `scale(${UI.s})`, transformOrigin: '0 0', width: innerWidth + 'px', height: innerHeight + 'px' });
-  r.setProperty('--vw', innerWidth / 100 + 'px'); r.setProperty('--vh', innerHeight / 100 + 'px');
+  if (native) b.transform = b.width = b.height = '';
+  else Object.assign(b, { transform: `translate(${UI.ox}px, ${UI.oy}px) scale(${UI.s})`, transformOrigin: '0 0', width: UI.w + 'px', height: UI.h + 'px' });
+  document.documentElement.classList.toggle('boxed', !native);
+  r.setProperty('--vw', UI.w / 100 + 'px'); r.setProperty('--vh', UI.h / 100 + 'px');
 }
 applyScale();
 window.addEventListener('resize', applyScale); // registered first, so everything else sees the new size
-const cX = e => e.clientX / UI.s, cY = e => e.clientY / UI.s;
-const lrect = elm => { const r = elm.getBoundingClientRect(), k = UI.s; return { left: r.left / k, top: r.top / k, right: r.right / k, bottom: r.bottom / k, width: r.width / k, height: r.height / k, x: r.x / k, y: r.y / k }; };
+const cX = e => (e.clientX - UI.ox) / UI.s, cY = e => (e.clientY - UI.oy) / UI.s;
+const lrect = elm => {
+  const r = elm.getBoundingClientRect(), k = UI.s, x = (r.left - UI.ox) / k, y = (r.top - UI.oy) / k;
+  return { left: x, top: y, right: x + r.width / k, bottom: y + r.height / k, width: r.width / k, height: r.height / k, x, y };
+};
 
 const I = ASSETS.icons, U = ASSETS.ui;
 const img = (src, cls = 'ico', alt = '') => `<img class="${cls}" src="${src}" alt="${alt}" draggable="false">`;
@@ -1174,7 +1188,9 @@ function openBrowser(start) {
     + '<form class="wb-form"><input class="wb-url" type="text" spellcheck="false" autocomplete="off" aria-label="Address or search"></form>'
     + '<button class="nb wb-out" aria-label="Open in a new tab" title="Open in a new tab">↗</button></div>');
   W.el.insertBefore(nav, W.body);
-  W.body.innerHTML = '<div class="tools wb-marks"></div><div class="wb-page"><iframe class="wb-frame" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe><div class="wb-note" hidden></div></div>';
+  W.body.innerHTML = '<div class="tools wb-marks"></div><div class="wb-page"><iframe class="wb-frame" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe><div class="wb-note" hidden></div>'
+    + `<div class="wb-start" hidden><div class="wb-logo"></div><form class="wb-sform"><input class="wb-sq" type="search" spellcheck="false" autocomplete="off" placeholder="Search Google or type a web address" aria-label="Search"><button class="okbtn">Search</button></form>`
+    + '<div class="wb-tiles"></div><p class="wb-tip">In a multiplayer room, pages opened from here or the address bar open for everyone. Clicks, typing and scrolling inside other websites stay private to each person (browsers don\'t let one site watch another), so search from this page or the address bar to search together.</p></div></div>';
   const q = sel => W.el.querySelector(sel);
   const frame = q('.wb-frame'), note = q('.wb-note'), urlIn = q('.wb-url');
   const st = { hist: [], i: -1 };
@@ -1228,7 +1244,9 @@ function openBrowser(start) {
 
   function show(entry) {
     urlIn.value = entry.url || '';
-    if (entry.note) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = false; note.textContent = entry.note; }
+    q('.wb-start').hidden = !entry.start;
+    if (entry.start) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = true; yt = null; q('.wb-sq').value = ''; }
+    else if (entry.note) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = false; note.textContent = entry.note; }
     else {
       note.hidden = true; frame.hidden = false; yt = null; clearInterval(ytListen); frame.src = embedUrl(entry.url);
       if (frame.src !== entry.url && !pausedMusic) { pausedMusic = true; setMusic(false); } // a player: don't play over it
@@ -1247,7 +1265,19 @@ function openBrowser(start) {
   q('.bk').onclick = () => { if (st.i > 0) show(st.hist[--st.i]); };
   q('.fw').onclick = () => { if (st.i < st.hist.length - 1) show(st.hist[++st.i]); };
   q('.wb-re').onclick = () => { if (st.i >= 0) show(st.hist[st.i]); };
-  q('.wb-home').onclick = () => goUrl(BROWSER.home, 'Home');
+  const goHome = () => BROWSER.home && BROWSER.home !== 'start' ? goUrl(BROWSER.home, 'Home') : go({ start: true, title: 'New tab' });
+  q('.wb-home').onclick = goHome;
+  // start page: its search box and tiles go through the same path as the address bar, so they're shared
+  const logo = q('.wb-logo'), colors = ['#4285f4', '#ea4335', '#fbbc05', '#4285f4', '#34a853', '#ea4335'];
+  [...SITE_NAME].forEach((ch, k) => { const s = document.createElement('span'); s.textContent = ch; s.style.color = colors[k % colors.length]; logo.append(s); });
+  logo.append(Object.assign(document.createElement('small'), { textContent: ' Search' }));
+  q('.wb-sform').onsubmit = e => { e.preventDefault(); const v = q('.wb-sq').value; if (v.trim()) goUrl(toUrl(v)); };
+  const tiles = q('.wb-tiles');
+  (BROWSER.bookmarks || []).filter(b => b.url).forEach(b => {
+    const t = el('<button class="wb-tile"><b></b><span></span></button>');
+    t.firstChild.textContent = b.name.slice(0, 1).toUpperCase(); t.lastChild.textContent = b.name;
+    t.onclick = () => goUrl(b.url, b.name); tiles.append(t);
+  });
   q('.wb-out').onclick = () => { const e = st.hist[st.i]; if (e && e.url) window.open(e.url, '_blank', 'noopener'); };
   q('.wb-form').onsubmit = e => { e.preventDefault(); goUrl(toUrl(urlIn.value)); };
   urlIn.onfocus = () => urlIn.select();
@@ -1260,10 +1290,10 @@ function openBrowser(start) {
   if (!marks.children.length) marks.remove();
   shareState(W, () => ({ e: st.hist[st.i], yt: yt && yt.ready ? { v: ytId(), p: yt.state !== 1, t: ytNow() } : null }), d => {
     const cur = st.hist[st.i];
-    if (d.e && !(cur && cur.url === d.e.url && cur.note === d.e.note)) go(d.e);
+    if (d.e && !(cur && cur.url === d.e.url && cur.note === d.e.note && !!cur.start === !!d.e.start)) go(d.e);
     if (d.yt) applyYt(d.yt);
   });
-  goUrl(start || BROWSER.home, start ? '' : 'Home');
+  if (start) goUrl(start, ''); else goHome();
   return W;
 }
 
@@ -3088,6 +3118,40 @@ function openPixelPaint() {
   return W;
 }
 
+/* ---------- settings ---------- */
+const RESOLUTIONS = [['Widescreen 16:9', [[1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]],
+  ['16:10', [[1280, 800], [1440, 900], [1680, 1050], [1920, 1200]]], ['Square-ish 4:3 and 5:4', [[1024, 768], [1280, 1024]]]];
+let setWin = null;
+function openSettings() {
+  if (setWin) { focusWin(setWin); return setWin; }
+  const W = makeWin({ title: 'Settings', icon: I.settings, w: 460, h: 560 });
+  W.body.innerHTML = '<div class="set"><h3>Display resolution</h3><p class="dim">The desktop is drawn at this size and scaled to fit your browser window, '
+    + 'with black bars if the shapes differ. In multiplayer, pick the same as the others so everyone has the same space.</p>'
+    + '<p class="set-now"></p><div class="set-list"></div><div class="set-room"></div><div class="set-foot"><button class="okbtn set-apply">Apply</button></div></div>';
+  const q = sel => W.body.querySelector(sel);
+  let choice = displayChoice();
+  const key = c => c.w ? `${c.w}x${c.h}` : 'fit';
+  W.render = () => {
+    q('.set-now').textContent = `Your browser window: ${window.innerWidth} × ${window.innerHeight}. Desktop now: ${Math.round(UI.w)} × ${Math.round(UI.h)}.`;
+    const opt = (k, label, extra = '') => `<label class="set-opt"><input type="radio" name="res" value="${k}"${k === key(choice) ? ' checked' : ''}> ${label}${extra}</label>`;
+    q('.set-list').innerHTML = RESOLUTIONS.map(([group, list]) => `<h4>${esc(group)}</h4>` + list.map(([w, h]) => opt(`${w}x${h}`, `${w} × ${h}`, w === 1600 && h === 900 ? ' <span class="dim">(default)</span>' : '')).join('')).join('')
+      + '<h4>Other</h4>' + opt('fit', 'Fit my screen', ' <span class="dim">(900 tall, as wide as your window)</span>');
+    q('.set-list').querySelectorAll('input').forEach(i => i.onchange = () => { const [w, h] = i.value === 'fit' ? [0, 900] : i.value.split('x').map(Number); choice = { w, h }; });
+    const others = [...mp.peers.values()].filter(p => Array.isArray(p.res));
+    q('.set-room').innerHTML = others.length ? '<h4>In this room</h4>' + others.map(p => `<div><i style="background:${esc(p.color)}"></i>${esc(p.name)}: ${Math.round(p.res[0])} × ${Math.round(p.res[1])}</div>`).join('') : '';
+  };
+  q('.set-apply').onclick = () => {
+    store.set('display', choice);
+    applyScale(); window.dispatchEvent(new Event('resize'));
+    asRemote(() => wins.forEach(w => setRect(w, [w.el.offsetLeft, w.el.offsetTop, w.el.offsetWidth, w.el.offsetHeight]))); // keep windows on screen
+    if (live()) hello();
+    W.render();
+  };
+  W.onClose = () => { setWin = null; };
+  setWin = W; W.render();
+  return W;
+}
+
 /* ---------- desktop ---------- */
 // Icons sit on a grid. Visitors can select them (click, Ctrl/Shift+click, or drag a box)
 // and drag them to any cell; the layout is remembered in their browser.
@@ -3142,7 +3206,15 @@ function moveIcons(group, dc, dr) {
     const spot = nearestFree(d.cell[0] + dc, d.cell[1] + dr, taken, cols, rows);
     taken.add(cellKey(...spot)); iconPos[d.node.name] = spot;
   });
-  store.set('desktop-pos', iconPos);
+  saveIcons();
+  layout();
+}
+// your layout is saved in your browser; in a room everyone shares one layout instead
+function saveIcons() { if (live()) mpSend({ t: 'icons', pos: iconPos }); else store.set('desktop-pos', iconPos); }
+function setIcons(pos) {
+  if (!pos || typeof pos !== 'object') return;
+  iconPos = {};
+  for (const [k, v] of Object.entries(pos)) if (Array.isArray(v) && v.length === 2 && v.every(Number.isInteger)) iconPos[k] = v;
   layout();
 }
 
@@ -3221,7 +3293,8 @@ dEl.addEventListener('contextmenu', e => {
   if (e.target !== dEl) return closeCtx();
   ctx.replaceChildren(...[
     ['Select all', () => selectOnly(icons)],
-    ['Reset icon positions', () => { iconPos = {}; store.set('desktop-pos', iconPos); layout(); }],
+    ['Reset icon positions', () => { iconPos = {}; saveIcons(); layout(); }],
+    ['Display settings', openSettings],
   ].map(([label, fn]) => { const b = el('<button></button>'); b.textContent = label; b.onclick = () => { closeCtx(); fn(); }; return b; }));
   ctx.hidden = false;
   ctx.style.left = Math.min(cX(e), innerWidth - ctx.offsetWidth - 4) + 'px';
@@ -3247,6 +3320,7 @@ DESKTOP_ITEMS.forEach(n => {
   const b = el('<button class="sm-r"></button>'); b.textContent = n.name;
   b.onclick = () => { closeStart(); openNode(n); }; smRight.append(b);
 });
+{ const b = el('<button class="sm-r sm-settings"></button>'); b.textContent = 'Settings'; b.onclick = () => { closeStart(); openSettings(); }; smRight.append(b); }
 orb.onclick = e => { e.stopPropagation(); start.hidden = !start.hidden; orb.classList.toggle('on', !start.hidden); };
 document.addEventListener('pointerdown', e => { if (!start.hidden && !start.contains(e.target) && !orb.contains(e.target)) closeStart(); });
 document.getElementById('peek').onclick = () => {
@@ -3449,7 +3523,7 @@ function bubble(p, text) {
   clearTimeout(p.bubbleT); p.bubbleT = setTimeout(() => { b.hidden = true; }, 4500);
 }
 const myTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; } })();
-const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since, now: Date.now(), tz: myTz }, to);
+const hello = to => mpSend({ t: 'hello', id: mp.self, name: me.name, color: me.color, since, now: Date.now(), tz: myTz, res: [Math.round(innerWidth), Math.round(innerHeight)] }, to);
 function pickRoomClock() { // the clock of whoever has been in the room longest
   const first = [...mp.peers.values()].filter(p => p.since < since).sort((a, b) => a.since - b.since)[0];
   roomClock = first ? { offset: first.offset || 0, tz: first.tz || '', name: first.name } : null;
@@ -3480,7 +3554,8 @@ async function joinRoom(code) {
 }
 async function leaveRoom() {
   const r = room; room = null; mp.send = null; roomCode = '';
-  mp.peers.forEach(p => { p.cur.remove(); if (p.box) p.box.remove(); }); mp.peers.clear(); paintSel(); chatLog.length = 0; unread = 0; pickRoomClock();
+  mp.peers.forEach(p => { p.cur.remove(); if (p.box) p.box.remove(); }); mp.peers.clear(); paintSel();
+  setIcons(store.get('desktop-pos', {})); // back to your own icon layout chatLog.length = 0; unread = 0; pickRoomClock();
   history.replaceState(null, '', location.pathname + location.search);
   refreshMp();
   if (r) await r.leave().catch(() => {});
@@ -3490,14 +3565,15 @@ function receive(m, from) {
   const p = mp.peers.get(from), W = m.sid ? bySid(m.sid) : null;
   if (m.t === 'hello') {
     const known = !!p, peer = p || { cur: el('<div class="mp-cur" hidden><svg viewBox="0 0 16 22" aria-hidden="true"><path d="M1 1v17l4.5-4.2 3 6.7 3-1.4-3-6.6H15z"/></svg><span></span></div>') };
-    Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since, tz: typeof m.tz === 'string' ? m.tz : '' });
+    Object.assign(peer, { id: m.id, name: m.name, color: m.color, since: m.since, tz: typeof m.tz === 'string' ? m.tz : '', res: Array.isArray(m.res) ? m.res.map(Number) : null });
+    if (setWin) setWin.render();
     if (typeof m.now === 'number') peer.offset = m.now - Date.now(); // how far their clock is from mine
     peer.cur.style.setProperty('--c', m.color); peer.cur.querySelector('span').textContent = m.name;
     if (!known) {
       document.body.append(peer.cur); mp.peers.set(from, peer);
       if (m.since > since) { toast(`${m.name} joined`); addChat({ sys: true, text: `${m.name} joined` }); } // not for people who were already here
     }
-    if (!known && m.since > since) mpSend({ t: 'snap', since, chat: chatLog.slice(-50), wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
+    if (!known && m.since > since) mpSend({ t: 'snap', since, icons: iconPos, chat: chatLog.slice(-50), wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
     pickRoomClock(); refreshMp(); return;
   }
   if (!p) return;
@@ -3510,6 +3586,7 @@ function receive(m, from) {
   }
   asRemote(() => {
     if (m.t === 'cur') return moveCursor(p, m);
+    if (m.t === 'icons') return setIcons(m.pos);
     if (m.t === 'sel' && Array.isArray(m.k) && typeof m.w === 'string') { (p.sel ||= {})[m.w] = m.k.slice(0, 500).map(String); return paintSel(); }
     if (m.t === 'box') { // their drag-select box on the desktop
       if (!Array.isArray(m.r)) { if (p.box) { p.box.remove(); p.box = null; } return; }
@@ -3521,6 +3598,7 @@ function receive(m, from) {
     if (m.t === 'snap') { // someone who was here first: show their desktop instead of mine
       if (synced || m.since >= since) return;
       synced = true;
+      setIcons(m.icons);
       if (Array.isArray(m.chat)) { // catch up on what was said before I came
         const before = chatLog.splice(0).filter(c => !c.sys);
         m.chat.forEach(c => c && typeof c.text === 'string' && chatLog.push({ id: c.id, name: String(c.name || ''), color: String(c.color || ''), text: c.text.slice(0, 300), sys: !!c.sys, at: +c.at || Date.now() }));

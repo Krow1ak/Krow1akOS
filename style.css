@@ -19,6 +19,7 @@
 }
 [hidden]{display:none!important}
 html,body{height:100%}
+html.boxed{background:#000} /* bars around the virtual screen when its shape differs from the window */
 body{margin:0;overflow:hidden;font:12px/1.35 var(--font-ui);color:var(--ink);user-select:none;-webkit-user-select:none;
   background:var(--wall-fallback) center/cover no-repeat}
 #watermark{position:fixed;right:9%;top:22%;width:min(calc(32 * var(--vw)),260px);opacity:.13;pointer-events:none}
@@ -630,3 +631,27 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .pxp-row input[type=number]{width:64px}
 .pxp-dbtns{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}
 @media (max-width:640px){.pxp-side{width:120px}.pxp-tools{width:72px}}
+
+/* settings */
+.set{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:12px 14px;background:linear-gradient(#f5f9fd,#dfe9f5)}
+.set h3{margin:0;font-size:14px;color:#1e395b}.set h4{margin:8px 0 2px;font-size:12px;color:#1e395b}
+.set p{margin:0}
+.set-now{font-weight:600}
+.set-opt{display:flex;align-items:center;gap:6px;padding:2px 0;cursor:pointer}
+.set-room div{display:flex;align-items:center;gap:6px}.set-room i{width:10px;height:10px;border-radius:50%}
+.set-foot{margin-top:auto;padding-top:10px;display:flex;justify-content:flex-end}
+.sm-r.sm-settings{margin-top:auto;border-top:1px solid rgba(255,255,255,.25);border-radius:0 0 3px 3px}
+
+/* browser start page */
+.wb-start{position:absolute;inset:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:18px;padding:12% 20px 20px;background:#fff}
+.wb-start[hidden]{display:none}
+.wb-logo{font:600 44px/1 var(--font-ui);letter-spacing:-1px}
+.wb-logo small{font-size:22px;font-weight:400;color:#5f6368;letter-spacing:0}
+.wb-sform{display:flex;gap:8px;width:min(520px,100%)}
+.wb-sq{flex:1;min-width:0;height:36px;padding:0 16px;border:1px solid #dfe1e5;border-radius:18px;font:14px var(--font-ui);box-shadow:0 1px 4px rgba(32,33,36,.12)}
+.wb-sq:focus{outline:none;border-color:#9ab;box-shadow:0 1px 6px rgba(32,33,36,.28)}
+.wb-tiles{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
+.wb-tile{width:84px;display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 4px;border:0;border-radius:6px;background:none;cursor:pointer;font:inherit;color:#202124}
+.wb-tile:hover{background:#f1f3f4}
+.wb-tile b{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:#e8eaed;font-size:18px;color:#3c4043}
+.wb-tip{max-width:520px;margin:auto 0 0;font-size:11px;color:#70757a;text-align:center;line-height:1.5}

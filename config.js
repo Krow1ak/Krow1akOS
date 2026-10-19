@@ -144,6 +144,7 @@ const SOUND = {
 const MULTIPLAYER = {
   enabled: true,
   relays: ['relay.damus.io', 'nos.lol', 'relay.primal.net', 'nostr.mom', 'relay.snort.social', 'offchain.pub', 'relay.nostr.net', 'nostr.oxtr.dev'],
+  moreRelays: true,   // also use the ~28 public relays built into the library, so a few dead ones don't matter
   turn: null,
 };
 

@@ -3538,7 +3538,9 @@ async function joinRoom(code) {
   catch { toast("Couldn't load multiplayer. Open the site from a web server, not straight from a file."); roomCode = ''; return; }
   since = Date.now(); synced = false; mpError = '';
   const config = { appId: `krowos-${SITE_NAME}`, password: roomCode };
-  if (MULTIPLAYER.relays && MULTIPLAYER.relays.length) config.relayConfig = { urls: MULTIPLAYER.relays.map(u => u.includes('://') ? u : 'wss://' + u) };
+  // our list plus every relay the library knows: both people use the same list, so any one that works is enough
+  const urls = [...(MULTIPLAYER.relays || []), ...(MULTIPLAYER.moreRelays !== false && mpLib.defaultRelayUrls || [])].map(u => u.includes('://') ? u : 'wss://' + u);
+  if (urls.length) config.relayConfig = { urls: [...new Set(urls)] };
   if (MULTIPLAYER.turn) config.turnConfig = MULTIPLAYER.turn;
   room = mpLib.joinRoom(config, roomCode, { onJoinError: e => { mpError = e.error || String(e); refreshMp(); } });
   const action = room.makeAction('m');
@@ -3716,6 +3718,7 @@ function openMpPanel() {
       bad = true;
       text += /SDP|TURN/i.test(mpError) ? ' · Found someone, but one of your networks blocked the direct connection. A TURN server fixes this (see MULTIPLAYER in config.js).' : ` · ${mpError}`;
     } else if (!up) text += ' · Your network or an ad blocker may be blocking them.';
+    else if (!mp.peers.size && Date.now() - since > 25000) text += ' · Nobody found yet: check your friend opened this exact link (same room code) and their panel also says some helper servers are reachable.';
     box.textContent = text; box.classList.toggle('bad', bad);
   };
   const statusTimer = setInterval(W.status, 1500);

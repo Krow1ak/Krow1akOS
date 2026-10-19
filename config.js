@@ -163,7 +163,7 @@ const BROWSER = {
   home: 'start',
   bookmarks: [
     { name: 'Google',    url: 'https://www.google.com/webhp?igu=1' },
-    { name: 'Spotify',   url: '' },   // your playlist link goes here
+    { name: 'Spotify',   url: 'https://open.spotify.com/playlist/1JacQnVfZhY5yiVxpc2akH' },
     { name: 'Wikipedia', url: 'https://en.wikipedia.org/wiki/Main_Page' },
   ],
 };

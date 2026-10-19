@@ -565,7 +565,7 @@ function openVideo(n) {
   const W = makeWin({ title: `${n.name} - Video Player`, icon: I.video, w: 680, h: 460 });
   W.body.innerHTML = '<div class="vp"><video controls autoplay playsinline preload="metadata"></video></div>';
   const v = W.body.querySelector('video');
-  v.volume = SOUND.videoVolume;
+  mixChannel(W, 'video', SOUND.videoVolume, lv => { v.volume = lv; }, { label: () => n.name });
   if (n.poster) v.poster = n.poster;
   v.onerror = () => { const e = el('<div class="vp-err"></div>'); e.textContent = `Couldn't play ${n.src}`; W.body.querySelector('.vp').replaceChildren(e); };
   v.src = n.src;
@@ -1221,12 +1221,18 @@ function openBrowser(start) {
       frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
     }, 250);
   });
+  // mixer channel: YouTube's volume is set through its embed messages; Spotify's player can't be reached
+  mixChannel(W, 'web', 1, lv => { if (yt && yt.ready) ytSend('setVolume', [Math.round(lv * 100)]); }, {
+    active: () => !!ytId() || /^https:\/\/open\.spotify\.com\/embed\//.test(frame.src),
+    label: () => ytId() ? 'YouTube' : 'Spotify',
+  });
+  Object.defineProperty(W.audio, 'locked', { get: () => ytId() ? '' : "Use Spotify's own volume" });
   function onYt(e) {
     if (!yt || e.source !== frame.contentWindow || !/youtube/.test(e.origin)) return;
     let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
     if (!d || !d.event) return;
     if (!yt.ready) {
-      yt.ready = true; clearInterval(ytListen); ytSend('addEventListener', ['onStateChange']);
+      yt.ready = true; clearInterval(ytListen); ytSend('addEventListener', ['onStateChange']); W.audio.apply();
       if (yt.pending) { const p = yt.pending; yt.pending = null; applyYt(p); }
     }
     const info = d.info && typeof d.info === 'object' ? d.info : {};
@@ -1308,7 +1314,7 @@ function openPlayer(n, folder) {
     + '<div class="mp-list" role="list"></div></div>';
   const au = W.body.querySelector('audio'), listEl = W.body.querySelector('.mp-list');
   // follow the speaker button when there is one; without background music it's hidden
-  if (music) { au.volume = snd.volume; au.muted = snd.muted; } else au.volume = SOUND.musicVolume;
+  mixChannel(W, 'player', SOUND.musicVolume, v => { au.volume = v; }, { label: () => 'Music Player' });
   let songs = [], i = 0;
   function load() {
     const s = songs[i];
@@ -3447,42 +3453,89 @@ function tick() {
 }
 tick(); setInterval(tick, 1000);
 
-/* ---------- sound ---------- */
-const volBtn = document.getElementById('vol'), volPop = document.getElementById('volpop');
-const volRange = document.getElementById('vol-range'), volPct = document.getElementById('vol-pct'), volMute = document.getElementById('vol-mute');
+/* ---------- sound and volume mixer ---------- */
+// The speaker button opens a mixer: Speakers turns everything up or down, and every window that's making
+// sound gets its own slider and mute. Levels are yours only; in multiplayer they don't change anyone else's.
+const volBtn = document.getElementById('vol'), volPop = document.getElementById('volpop'), mxEl = volPop.querySelector('.mx');
 const music = SOUND.music ? new Audio() : null;
-const snd = store.get('sound', { volume: SOUND.musicVolume, muted: !!SOUND.startMuted }); // the visitor's own choice wins
+const snd = store.get('sound', { volume: SOUND.musicVolume, muted: !!SOUND.startMuted }); // background music
+const mix = store.get('mixer', { master: 1, muted: false });
+const appLevels = store.get('mixer-apps', {}); // last level per kind of window: player, video, web
 let musicOn = true;
 if (music) { music.loop = true; music.preload = 'none'; music.src = SOUND.music; }
+function mixLevel(a) { return mix.muted || a.muted ? 0 : mix.master * a.vol; }
+// windows call this to get a mixer channel; apply() pushes the level into their player
+function mixChannel(W, key, defVol, apply, extra = {}) {
+  W.audio = Object.assign({ key, vol: appLevels[key] ?? defVol, muted: false, apply: () => apply(mixLevel(W.audio)) }, extra);
+  W.audio.apply();
+}
 function applyVolume() {
-  const v = Math.round(snd.volume * 100), icon = snd.muted || !v ? U.mute : U.volume;
-  if (music) { music.volume = snd.volume; music.muted = snd.muted; }
-  volRange.value = v; volPct.textContent = v;
-  volBtn.innerHTML = img(icon, ''); volMute.innerHTML = img(icon, '');
-  volBtn.title = snd.muted ? 'Speakers: muted' : `Speakers: ${v}%`;
-  volMute.setAttribute('aria-label', snd.muted ? 'Unmute' : 'Mute');
-  store.set('sound', snd);
+  if (music) music.volume = mix.muted || snd.muted ? 0 : mix.master * snd.volume;
+  wins.forEach(w => w.audio && w.audio.apply());
+  const v = Math.round(mix.master * 100), icon = mix.muted || !v ? U.mute : U.volume;
+  volBtn.innerHTML = img(icon, '');
+  volBtn.title = mix.muted ? 'Speakers: muted' : `Speakers: ${v}% · click for the volume mixer`;
+  store.set('mixer', mix); store.set('sound', snd);
 }
 // browsers only allow sound once the visitor has clicked or pressed a key
 function playMusic() { if (music && musicOn && music.paused) music.play().catch(() => {}); }
 function setMusic(on) { musicOn = on; if (on) playMusic(); else if (music) music.pause(); }
 ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, playMusic, true));
-if (!music) volBtn.hidden = true;
 
-const closeVol = () => { volPop.hidden = true; volBtn.classList.remove('on'); };
+function mixerChannels() {
+  const out = [{ id: 'master', name: 'Speakers', icon: U.volume, st: mix, master: true }];
+  if (music) out.push({ id: 'bg', name: 'Background music', icon: I.music, st: snd });
+  wins.forEach(w => {
+    if (!w.audio || (w.audio.active && !w.audio.active())) return;
+    const title = w.el.querySelector('.ttl').textContent;
+    out.push({ id: 'w' + (w.sid || wins.indexOf(w)) + (w.audio.locked ? 'L' : ''), name: w.audio.label ? w.audio.label() : title, title, icon: (w.el.querySelector('.ti img') || {}).src, st: w.audio, w });
+  });
+  return out;
+}
+let mxSig = '', mxTimer = null;
+function renderMixer(force) {
+  const chans = mixerChannels(), sig = chans.map(c => c.id + c.name).join('|');
+  if (!force && sig === mxSig) return;
+  mxSig = sig;
+  mxEl.replaceChildren(...chans.map(c => {
+    const st = c.st, locked = c.w && c.w.audio.locked;
+    const box = el('<div class="mx-ch"><img class="mx-ic" alt=""><span class="mx-name"></span><input type="range" min="0" max="100" step="1"><span class="mx-pct"></span><button class="mx-mute"></button></div>');
+    box.classList.toggle('master', !!c.master);
+    box.querySelector('.mx-ic').src = c.icon || I.music;
+    box.querySelector('.mx-name').textContent = c.name; box.title = c.title || c.name;
+    const range = box.querySelector('input'), pct = box.querySelector('.mx-pct'), mute = box.querySelector('.mx-mute');
+    range.setAttribute('aria-label', `${c.name} volume`);
+    const val = () => Math.round((c.master ? st.master : st.vol) * 100);
+    const paint = () => { range.value = val(); pct.textContent = val(); mute.innerHTML = img(st.muted || !val() ? U.mute : U.volume, ''); mute.setAttribute('aria-label', (st.muted ? 'Unmute ' : 'Mute ') + c.name); };
+    range.oninput = () => {
+      const v = range.value / 100;
+      if (c.master) mix.master = v; else st.vol = v;
+      st.muted = false;
+      if (c.w) { appLevels[c.w.audio.key] = v; store.set('mixer-apps', appLevels); }
+      applyVolume(); paint();
+    };
+    mute.onclick = () => { st.muted = !st.muted; applyVolume(); paint(); };
+    paint();
+    if (locked) { range.disabled = mute.disabled = true; pct.className = 'mx-note'; pct.textContent = locked; } // Spotify: only its own volume works
+    return box;
+  }));
+  if (chans.length === (music ? 2 : 1)) mxEl.append(el('<div class="mx-empty">Windows playing sound (music, videos, YouTube) show up here with their own slider.</div>'));
+}
+const closeVol = () => { volPop.hidden = true; volBtn.classList.remove('on'); clearInterval(mxTimer); };
+function placeMixer() {
+  const r = lrect(volBtn);
+  volPop.style.left = Math.max(4, Math.min(innerWidth - volPop.offsetWidth - 4, r.left + r.width / 2 - volPop.offsetWidth / 2)) + 'px';
+}
 volBtn.onclick = e => {
   e.stopPropagation(); closeStart();
   if (!cal.hidden) { cal.hidden = true; tray.classList.remove('on'); }
   if (!volPop.hidden) return closeVol();
   volPop.hidden = false; volBtn.classList.add('on');
-  const r = lrect(volBtn);
-  volPop.style.left = Math.max(4, Math.min(innerWidth - volPop.offsetWidth - 4, r.left + r.width / 2 - volPop.offsetWidth / 2)) + 'px';
-  volRange.focus();
+  renderMixer(true); placeMixer();
+  mxTimer = setInterval(() => { const before = mxSig; renderMixer(); if (mxSig !== before) placeMixer(); }, 600); // windows opening and closing
 };
 document.addEventListener('pointerdown', e => { if (!volPop.hidden && !volPop.contains(e.target) && !volBtn.contains(e.target)) closeVol(); });
-volRange.oninput = () => { snd.volume = volRange.value / 100; snd.muted = false; applyVolume(); };
-volMute.onclick = () => { snd.muted = !snd.muted; applyVolume(); };
-volBtn.addEventListener('wheel', e => { e.preventDefault(); snd.volume = Math.max(0, Math.min(1, snd.volume + (e.deltaY < 0 ? 0.05 : -0.05))); snd.muted = false; applyVolume(); }, { passive: false });
+volBtn.addEventListener('wheel', e => { e.preventDefault(); mix.master = Math.max(0, Math.min(1, mix.master + (e.deltaY < 0 ? 0.05 : -0.05))); mix.muted = false; applyVolume(); if (!volPop.hidden) renderMixer(true); }, { passive: false });
 applyVolume();
 
 /* ---------- multiplayer: rooms, people and cursors ---------- */

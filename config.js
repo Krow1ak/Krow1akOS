@@ -40,6 +40,10 @@ const ASSETS = {
     pinball:     'assets/icons/pinball.png',
     snake:       'assets/icons/snake.png',
     solitaire:   'assets/icons/solitaire.png',
+    airhockey:   'assets/icons/airhockey.png',
+    tetris:      'assets/icons/tetris.png',
+    guessdraw:   'assets/icons/guessdraw.png',
+    rhythm:      'assets/icons/rhythm.png',
     tictactoe:   'assets/icons/tictactoe.png',
     connect4:    'assets/icons/connect4.png',
     checkers:    'assets/icons/checkers.png',
@@ -168,6 +172,9 @@ const BROWSER = {
   ],
 };
 
+/* Your own words for Guess the Drawing, added to the built-in ones, e.g. ['chucha', 'krow'] */
+const GUESS_WORDS = [];
+
 /* ---------- FILES ----------
    folder('Name', [ ...items ])            a folder
    folder('Name', [ ... ], { art:true })    a folder that shows big picture thumbnails
@@ -189,6 +196,10 @@ const BROWSER = {
    solitaire()                             Solitaire (Klondike; Game > Draw one / Draw three)
    tictactoe(), connectFour(), checkers(), chess()   two-player games: vs the computer, two on one screen, or in a multiplayer room
    game2048()                              2048
+   airHockey()                             Air Hockey (vs the computer, or a friend in a room)
+   tetris()                                Tetris (solo, or Versus in a multiplayer room)
+   guessDrawing()                          Guess the Drawing (2+ people in a room; add words in GUESS_WORDS below)
+   rhythm()                                Rhythm Keys (play the songs in the Music folder with D F J K)
    sudoku()                                the daily Sudoku (Game > New random puzzle for free play)
    browser()                               the web browser (home page and bookmarks are in BROWSER above)
    audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
@@ -246,8 +257,12 @@ const CONNECT4 = connectFour();
 const CHECKERS = checkers();
 const CHESS = chess();
 const G2048 = game2048();
+const AIR_HOCKEY = airHockey();
+const TETRIS = tetris();
+const GUESS = guessDrawing();
+const RHYTHM = rhythm();
 const SUDOKU = sudoku();
-const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
+const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TETRIS, AIR_HOCKEY, RHYTHM, GUESS, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
 
 const BROWSER_APP = browser();
 
@@ -274,6 +289,10 @@ function video(name, src, opts = {}) { return { name, type: 'video', src, ...opt
 function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweeper', ...opts }; }
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
+function airHockey(opts = {}) { return { name: 'Air Hockey', type: 'airhockey', ...opts }; }
+function tetris(opts = {}) { return { name: 'Tetris', type: 'tetris', ...opts }; }
+function guessDrawing(opts = {}) { return { name: 'Guess the Drawing', type: 'guessdraw', ...opts }; }
+function rhythm(opts = {}) { return { name: 'Rhythm Keys', type: 'rhythm', ...opts }; }
 function pixelPaint(opts = {}) { return { name: 'Pixel Paint', type: 'pixelpaint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
 function snake(opts = {}) { return { name: 'Snake', type: 'snake', ...opts }; }

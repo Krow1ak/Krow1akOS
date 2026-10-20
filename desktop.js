@@ -41,14 +41,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', airhockey: 'Game', tetris: 'Game', guessdraw: 'Game', rhythm: 'Game',  tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, airhockey: I.airhockey, tetris: I.tetris, guessdraw: I.guessdraw, rhythm: I.rhythm,  tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -388,6 +388,10 @@ function openApp(n, folder) {
   if (n.type === 'pinball') return openPinball();
   if (n.type === 'snake') return openSnake();
   if (n.type === 'solitaire') return openSolitaire();
+  if (n.type === 'airhockey') return openAirHockey();
+  if (n.type === 'tetris') return openTetris();
+  if (n.type === 'guessdraw') return openGuessDraw();
+  if (n.type === 'rhythm') return openRhythm();
   if (n.type === 'tictactoe') return openTicTacToe();
   if (n.type === 'connect4') return openConnectFour();
   if (n.type === 'checkers') return openCheckers();
@@ -3124,6 +3128,728 @@ function openPixelPaint() {
   return W;
 }
 
+/* ---------- air hockey ---------- */
+// Red defends the bottom goal, Blue the top. An empty side is played by the computer, so it works alone too;
+// in a room a friend takes a side with the button. One computer runs the puck (like Pinball) and the others
+// send where their mallet is going. Everyone sees their own side at the bottom.
+let ahWin = null;
+function openAirHockey() {
+  if (ahWin) { focusWin(ahWin); return ahWin; }
+  const TW = 300, TH = 500, PR = 12, MR = 21, GOAL = 112, WIN_AT = 7;
+  const W = makeWin({ title: 'Air Hockey', icon: I.airhockey, w: 420, h: 700 });
+  W.body.innerHTML = '<div class="ah"><div class="ah-score"><span class="ah-s0"></span><b class="ah-msg"></b><span class="ah-s1"></span></div>'
+    + '<div class="ah-wrap"><canvas class="ah-c" width="300" height="500" aria-label="Air hockey table"></canvas><div class="ah-seats"></div></div>'
+    + '<div class="ah-help">Move the mouse (or your finger) on your half to move your mallet · first to 7 wins</div></div>';
+  const q = sel => W.body.querySelector(sel), cv = q('.ah-c'), g = cv.getContext('2d');
+  const fresh = (seats = [mp.self, null]) => ({ p: [TW / 2, TH / 2, 0, 0], m: [[TW / 2, TH - 60], [TW / 2, 60]], s: [0, 0], seats, over: -1, pause: 0 });
+  let st = fresh(), aims = [null, null], prevM = st.m.map(m => [...m]), raf = 0, last = 0, tick = 0, myAim = null;
+  const mySeat = () => st.seats.indexOf(mp.self);
+  const flip = () => mySeat() === 1; // the top player sees the table turned around
+  const toTable = e => { const r = lrect(cv); let x = (cX(e) - r.left) / r.width * TW, y = (cY(e) - r.top) / r.height * TH; if (flip()) { x = TW - x; y = TH - y; } return [x, y]; };
+  const clampMallet = (k, x, y) => [Math.max(MR, Math.min(TW - MR, x)), k === 0 ? Math.max(TH / 2 + MR, Math.min(TH - MR, y)) : Math.max(MR, Math.min(TH / 2 - MR, y))];
+  function serve(toward) { st.p = [TW / 2, toward === 0 ? TH * 0.62 : TH * 0.38, 0, 0]; st.pause = 0.6; }
+  function step(dt) { // runs on the computer that holds the game
+    if (st.over >= 0) return;
+    for (let k = 0; k < 2; k++) { // mallets chase their aim (a player's pointer or the computer's plan)
+      let aim = st.seats[k] ? aims[k] : cpuAim(k);
+      if (!aim) continue;
+      aim = clampMallet(k, ...aim);
+      const m = st.m[k], dx = aim[0] - m[0], dy = aim[1] - m[1], d = Math.hypot(dx, dy), max = (st.seats[k] ? 2200 : 520) * dt;
+      if (d > max) { m[0] += dx / d * max; m[1] += dy / d * max; } else { m[0] = aim[0]; m[1] = aim[1]; }
+    }
+    if (st.pause > 0) { st.pause -= dt; prevM = st.m.map(m => [...m]); return; }
+    const p = st.p;
+    p[0] += p[2] * dt; p[1] += p[3] * dt;
+    const f = Math.pow(0.6, dt); p[2] *= f; p[3] *= f; // air friction
+    if (p[0] < PR) { p[0] = PR; p[2] = Math.abs(p[2]) * 0.9; } else if (p[0] > TW - PR) { p[0] = TW - PR; p[2] = -Math.abs(p[2]) * 0.9; }
+    const inMouth = Math.abs(p[0] - TW / 2) < GOAL / 2 - PR / 2;
+    if (!inMouth) { if (p[1] < PR) { p[1] = PR; p[3] = Math.abs(p[3]) * 0.9; } else if (p[1] > TH - PR) { p[1] = TH - PR; p[3] = -Math.abs(p[3]) * 0.9; } }
+    if (p[1] < -PR || p[1] > TH + PR) { // goal
+      const scorer = p[1] < 0 ? 0 : 1; st.s[scorer]++;
+      if (st.s[scorer] >= WIN_AT) st.over = scorer; else serve(1 - scorer);
+      return;
+    }
+    for (let k = 0; k < 2; k++) {
+      const m = st.m[k], mv = [(m[0] - prevM[k][0]) / dt, (m[1] - prevM[k][1]) / dt];
+      const dx = p[0] - m[0], dy = p[1] - m[1], d = Math.hypot(dx, dy);
+      if (d >= PR + MR || d === 0) continue;
+      const nx = dx / d, ny = dy / d;
+      p[0] = m[0] + nx * (PR + MR); p[1] = m[1] + ny * (PR + MR);
+      const rel = (p[2] - mv[0]) * nx + (p[3] - mv[1]) * ny;
+      if (rel < 0) { p[2] -= 1.9 * rel * nx; p[3] -= 1.9 * rel * ny; }
+    }
+    const sp = Math.hypot(p[2], p[3]); if (sp > 1100) { p[2] *= 1100 / sp; p[3] *= 1100 / sp; }
+    prevM = st.m.map(m => [...m]);
+  }
+  function cpuAim(k) { // stay between the puck and the goal; strike when the puck is on our half and not racing away
+    const [px, py, vx, vy] = st.p, home = k === 1 ? 52 : TH - 52, mine = k === 1 ? py < TH / 2 : py > TH / 2;
+    if (mine && (k === 1 ? vy < 260 : vy > -260)) return [px + (px - TW / 2) * 0.15, py + (k === 1 ? -PR : PR)];
+    const t = Math.max(0, Math.min(0.6, Math.abs((home - py) / (vy || 1))));
+    return [Math.max(MR, Math.min(TW - MR, TW / 2 + (px + vx * t - TW / 2) * 0.55)), home];
+  }
+  function draw() {
+    g.save();
+    if (flip()) { g.translate(TW, TH); g.rotate(Math.PI); }
+    g.fillStyle = '#eaf6ff'; g.fillRect(0, 0, TW, TH);
+    g.strokeStyle = 'rgba(40,110,200,.35)'; g.lineWidth = 2;
+    g.beginPath(); g.arc(TW / 2, TH / 2, 46, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(TW / 2, 0, GOAL / 2 + 22, 0, Math.PI); g.stroke(); g.beginPath(); g.arc(TW / 2, TH, GOAL / 2 + 22, Math.PI, 0); g.stroke();
+    g.strokeStyle = 'rgba(220,40,60,.55)'; g.lineWidth = 3; g.beginPath(); g.moveTo(0, TH / 2); g.lineTo(TW, TH / 2); g.stroke();
+    for (const [y, c] of [[0, '#2a6fe0'], [TH, '#e0283d']]) { g.fillStyle = c; g.fillRect(TW / 2 - GOAL / 2, y === 0 ? 0 : TH - 6, GOAL, 6); }
+    g.strokeStyle = '#9fb3c8'; g.lineWidth = 6; g.strokeRect(3, 3, TW - 6, TH - 6);
+    const p = st.p; // puck, a little ahead when it's someone else's simulation (smoother)
+    g.fillStyle = 'rgba(0,0,0,.18)'; g.beginPath(); g.arc(p[0] + 2, p[1] + 3, PR, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#222'; g.beginPath(); g.arc(p[0], p[1], PR, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#555'; g.lineWidth = 2; g.beginPath(); g.arc(p[0], p[1], PR - 4, 0, Math.PI * 2); g.stroke();
+    st.m.forEach((m, k) => {
+      const [x, y] = k === mySeat() && myAim && !isLead(W) ? clampMallet(k, ...myAim) : m; // my own mallet follows my pointer right away
+      const col = k ? ['#2a6fe0', '#9cc0ff'] : ['#e0283d', '#ff9aa5'];
+      g.fillStyle = 'rgba(0,0,0,.2)'; g.beginPath(); g.arc(x + 2, y + 4, MR, 0, Math.PI * 2); g.fill();
+      const gr = g.createRadialGradient(x - 6, y - 6, 2, x, y, MR); gr.addColorStop(0, col[1]); gr.addColorStop(1, col[0]);
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, MR, 0, Math.PI * 2); g.fill();
+      g.fillStyle = col[0]; g.beginPath(); g.arc(x, y, MR * 0.45, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 2; g.beginPath(); g.arc(x, y, MR * 0.45, 0, Math.PI * 2); g.stroke();
+    });
+    g.restore();
+    const who = k => st.seats[k] ? personName(st.seats[k]) : 'Computer';
+    const [lo, hi] = flip() ? [1, 0] : [0, 1];
+    q('.ah-s0').innerHTML = `<i class="ah-dot ${hi ? 'blue' : 'red'}"></i>${esc(who(hi))} <b>${st.s[hi]}</b>`;
+    q('.ah-s1').innerHTML = `<b>${st.s[lo]}</b> ${esc(who(lo))}<i class="ah-dot ${lo ? 'blue' : 'red'}"></i>`;
+    q('.ah-msg').textContent = st.over >= 0 ? `${who(st.over)} wins!` : !inUse(W) ? 'Paused' : '';
+  }
+  function seats() { // buttons to take or leave a side
+    const box = q('.ah-seats'), mine = mySeat();
+    const html = [];
+    if (st.over >= 0) html.push('<button class="okbtn" data-a="again">Play again</button>');
+    for (const k of [0, 1]) if (!st.seats[k] && mine < 0) html.push(`<button class="okbtn" data-a="seat${k}">Play ${k ? 'Blue (top)' : 'Red (bottom)'}</button>`);
+    if (mine >= 0 && live()) html.push('<button class="tbtn" data-a="leave">Leave my side</button>');
+    const sig = html.join('');
+    if (box.dataset.sig !== sig) { box.dataset.sig = sig; box.innerHTML = sig; box.querySelectorAll('button').forEach(b => b.onclick = () => act(b.dataset.a)); }
+  }
+  const ask = (d, fn) => { if (isLead(W)) { fn(mp.self); W.push(); } else sendInput(W, d); };
+  function act(a) {
+    if (a === 'again') ask({ again: 1 }, () => { st = fresh(st.seats); aims = [null, null]; });
+    else if (a.startsWith('seat')) { const k = +a[4]; ask({ seat: k }, who => takeSeat(k, who)); }
+    else if (a === 'leave') ask({ leave: 1 }, who => leaveSeat(who));
+  }
+  const takeSeat = (k, who) => { if (!st.seats[k] && !st.seats.includes(who)) st.seats[k] = who; };
+  const leaveSeat = who => { st.seats = st.seats.map(s => s === who ? null : s); };
+  W.onInput = (d, from) => {
+    if (d.aim) { const k = st.seats.indexOf(from); if (k >= 0) aims[k] = d.aim.map(Number); return; }
+    if (d.again) { st = fresh(st.seats); aims = [null, null]; }
+    if (d.seat != null) takeSeat(d.seat | 0, from);
+    if (d.leave) leaveSeat(from);
+    W.push();
+  };
+  shareState(W, () => st, d => { st = d; });
+  let aimSent = 0;
+  cv.addEventListener('pointermove', e => {
+    if (mySeat() < 0) return;
+    myAim = toTable(e);
+    if (isLead(W)) aims[mySeat()] = myAim;
+    else if (performance.now() - aimSent > 30) { aimSent = performance.now(); sendInput(W, { aim: myAim.map(v => Math.round(v)) }); }
+  });
+  cv.addEventListener('pointerdown', e => { cv.setPointerCapture(e.pointerId); cv.dispatchEvent(new PointerEvent('pointermove', e)); });
+  cv.style.touchAction = 'none';
+  function frame(t) {
+    const dt = Math.min(0.033, (t - last) / 1000 || 0); last = t;
+    if (isLead(W) && inUse(W)) {
+      for (let k = 0; k < 4; k++) step(dt / 4);
+      if (live() && ++tick % 2) W.push();
+    }
+    draw(); seats();
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+  W.onClose = () => { cancelAnimationFrame(raf); ahWin = null; };
+  ahWin = W;
+  return W;
+}
+
+/* ---------- tetris ---------- */
+// Solo, or Versus in a room: everyone gets the same pieces, clearing 2+ lines sends junk rows to an
+// opponent, last one standing wins. Each person's board runs on their own computer; boards are shared
+// for watching and the junk rows are sent as messages.
+const TT_COLORS = { I: '#2fd3e8', O: '#f5d33b', T: '#a95ce0', S: '#5bd35b', Z: '#ef4b4b', J: '#3b6fe8', L: '#f39a2e', G: '#8a8f99' };
+const TT_SHAPES = { I: [[0, 1], [1, 1], [2, 1], [3, 1]], O: [[1, 0], [2, 0], [1, 1], [2, 1]], T: [[1, 0], [0, 1], [1, 1], [2, 1]],
+  S: [[1, 0], [2, 0], [0, 1], [1, 1]], Z: [[0, 0], [1, 0], [1, 1], [2, 1]], J: [[0, 0], [0, 1], [1, 1], [2, 1]], L: [[2, 0], [0, 1], [1, 1], [2, 1]] };
+// standard wall kicks (y down), for rotating from state a to state b
+const TT_KICKS = {
+  '01': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], '10': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]], '12': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],
+  '21': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]], '23': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]], '32': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
+  '30': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]], '03': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]] };
+const TT_KICKS_I = {
+  '01': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]], '10': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]], '12': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],
+  '21': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]], '23': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]], '32': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],
+  '30': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]], '03': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]] };
+function ttCells(type, rot) { // the piece's cells after `rot` quarter turns clockwise inside its box
+  const n = type === 'I' ? 4 : type === 'O' ? 4 : 3;
+  return TT_SHAPES[type].map(([x, y]) => { for (let k = 0; k < rot; k++) [x, y] = [n - 1 - y, x]; return [x, y]; });
+}
+let ttWin = null;
+function openTetris() {
+  if (ttWin) { focusWin(ttWin); return ttWin; }
+  const COLS = 10, ROWS = 20, HID = 2, CELL = 26;
+  const W = makeWin({ title: 'Tetris', icon: I.tetris, w: 640, h: 640 });
+  W.body.innerHTML = '<div class="tt"><div class="tt-side"><h4>Hold</h4><canvas class="tt-hold" width="104" height="70"></canvas><div class="tt-stats"></div>'
+    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button></div></div>'
+    + '<div class="tt-mid"><canvas class="tt-c" width="260" height="520" aria-label="Tetris board"></canvas><div class="tt-note"></div></div>'
+    + '<div class="tt-side"><h4>Next</h4><canvas class="tt-next" width="104" height="260"></canvas><div class="tt-opps"></div></div>'
+    + '<div class="tt-touch"><button data-k="left">◀</button><button data-k="rot">⟳</button><button data-k="right">▶</button><button data-k="soft">▼</button><button data-k="drop">⤓</button><button data-k="hold">Hold</button></div>'
+    + '<div class="tt-help">← → move · ↓ soft drop · Space hard drop · ↑/X rotate · Z rotate back · C hold · P pause</div></div>';
+  const q = sel => W.body.querySelector(sel), cv = q('.tt-c'), g = cv.getContext('2d');
+  let grid, cur, bag, rnd, queue, hold, canHold, score, lines, level, over, paused, dropT, lockT, lockMoves, versus = null, junk = 0, countdown = 0, raf = 0, last = 0, best = store.get('tetris-best', 0);
+  const opps = new Map(); // other players in versus: id -> { name, color, grid, score, lines, over }
+  const empty = () => Array.from({ length: ROWS + HID }, () => Array(COLS).fill(''));
+  function nextPiece() {
+    if (queue.length < 7) { const b = shuffleBy(Object.keys(TT_SHAPES), rnd); queue.push(...b); } // 7-bag
+    return queue.shift();
+  }
+  function spawn(type) {
+    cur = { t: type, r: 0, x: type === 'O' ? 3 : 3, y: 0 };
+    if (!fits(cur.x, cur.y, cur.r)) { gameOver(); return; }
+    lockT = 0; lockMoves = 0; canHold = true;
+  }
+  function start(seed) {
+    grid = empty(); rnd = seed != null ? seededRandom('tetris|' + seed) : Math.random; queue = []; hold = null; score = 0; lines = 0; level = 1; over = false; paused = false; dropT = 0; junk = 0;
+    spawn(nextPiece()); draw();
+  }
+  const fits = (x, y, r, t = cur.t) => ttCells(t, r).every(([cx, cy]) => { const X = x + cx, Y = y + cy; return X >= 0 && X < COLS && Y < ROWS + HID && (Y < 0 || !grid[Y][X]); });
+  const move = (dx, dy) => { if (over || paused || countdown > 0 || !fits(cur.x + dx, cur.y + dy, cur.r)) return false; cur.x += dx; cur.y += dy; if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return true; };
+  function rotate(dir) {
+    if (over || paused || countdown > 0 || cur.t === 'O') return;
+    const to = (cur.r + dir + 4) % 4, kicks = (cur.t === 'I' ? TT_KICKS_I : TT_KICKS)[`${cur.r}${to}`];
+    for (const [kx, ky] of kicks) if (fits(cur.x + kx, cur.y - ky, to)) { cur.x += kx; cur.y -= ky; cur.r = to; if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return; }
+  }
+  const ghostY = () => { let y = cur.y; while (fits(cur.x, y + 1, cur.r)) y++; return y; };
+  function hardDrop() { if (over || paused || countdown > 0) return; const y = ghostY(); score += 2 * (y - cur.y); cur.y = y; lock(); }
+  function doHold() {
+    if (over || paused || countdown > 0 || !canHold) return;
+    const t = cur.t; if (hold) spawn(hold); else spawn(nextPiece()); hold = t; canHold = false;
+  }
+  function lock() {
+    ttCells(cur.t, cur.r).forEach(([cx, cy]) => { const Y = cur.y + cy; if (Y >= 0) grid[Y][cur.x + cx] = cur.t; });
+    if (ttCells(cur.t, cur.r).every(([, cy]) => cur.y + cy < HID)) return gameOver(); // locked fully above the top
+    let cleared = 0;
+    for (let y = ROWS + HID - 1; y >= 0; y--) if (grid[y].every(Boolean)) { grid.splice(y, 1); grid.unshift(Array(COLS).fill('')); cleared++; y++; }
+    if (cleared) {
+      lines += cleared; score += [0, 100, 300, 500, 800][cleared] * level; level = 1 + Math.floor(lines / 10);
+      const send = [0, 0, 1, 2, 4][cleared];
+      if (versus && send) { const cancel = Math.min(junk, send); junk -= cancel; if (send - cancel) attack(send - cancel); }
+    } else if (junk) { addJunk(junk); junk = 0; }
+    spawn(nextPiece()); share();
+  }
+  function addJunk(n) { // rows of grey with one gap, pushed in from the bottom
+    const hole = Math.floor(Math.random() * COLS);
+    for (let k = 0; k < n; k++) { grid.shift(); const row = Array(COLS).fill('G'); row[hole] = ''; grid.push(row); }
+    if (!fits(cur.x, cur.y, cur.r)) { cur.y = Math.max(0, cur.y - n); if (!fits(cur.x, cur.y, cur.r)) gameOver(); }
+  }
+  function gameOver() {
+    over = true;
+    if (!versus && score > best) { best = score; store.set('tetris-best', best); }
+    share(); draw();
+  }
+  // versus: pieces come from a shared seed; boards are sent for the side view, junk goes to one living opponent
+  const alive = () => [...opps.entries()].filter(([, o]) => !o.over);
+  function attack(n) {
+    const targets = alive(); if (!targets.length) return;
+    const [id] = targets[Math.floor(Math.random() * targets.length)];
+    W.push({ junk: { to: id, n, from: mp.self } });
+  }
+  let shareT = 0;
+  function share(force) {
+    if (!versus || !live()) return;
+    const now = performance.now(); if (!force && now - shareT < 250 && !over) return; shareT = now;
+    W.push({ vs: { id: mp.self, name: me.name, color: me.color, g: grid.slice(HID).map(r => r.map(c => c || '.').join('')).join(''), score, lines, over, round: versus.round } });
+  }
+  function startVersus() { // anyone in the room can start; everyone who has the window open plays
+    const round = { seed: Math.floor(Math.random() * 1e9), round: Date.now() };
+    W.push({ start: round }); beginVersus(round);
+  }
+  function beginVersus(r) {
+    versus = r; opps.clear(); countdown = 3; start(r.seed); share(true);
+    q('.tt-note').textContent = '';
+  }
+  shareState(W, () => ({}), d => {
+    if (d.start) beginVersus(d.start);
+    else if (d.vs && versus && d.vs.round === versus.round && d.vs.id !== mp.self) opps.set(d.vs.id, d.vs);
+    else if (d.junk && versus && d.junk.to === mp.self && !over) junk += Math.min(10, d.junk.n | 0);
+  });
+  q('.tt-solo').onclick = () => { versus = null; opps.clear(); countdown = 0; start(); };
+  q('.tt-vs').onclick = () => startVersus();
+
+  function drawCell(ctx, x, y, s, t, ghost) {
+    const c = TT_COLORS[t];
+    if (ghost) { ctx.strokeStyle = c; ctx.globalAlpha = 0.5; ctx.lineWidth = 2; ctx.strokeRect(x * s + 2, y * s + 2, s - 4, s - 4); ctx.globalAlpha = 1; return; }
+    ctx.fillStyle = c; ctx.fillRect(x * s, y * s, s, s);
+    ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.fillRect(x * s, y * s, s, 3); ctx.fillRect(x * s, y * s, 3, s);
+    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(x * s, y * s + s - 3, s, 3); ctx.fillRect(x * s + s - 3, y * s, 3, s);
+  }
+  function drawMini(canvas, t) {
+    const c = canvas.getContext('2d'); c.clearRect(0, 0, canvas.width, canvas.height); if (!t) return;
+    const cells = ttCells(t, 0), s = 20, minX = Math.min(...cells.map(p => p[0])), maxX = Math.max(...cells.map(p => p[0])), minY = Math.min(...cells.map(p => p[1])), maxY = Math.max(...cells.map(p => p[1]));
+    const ox = (canvas.width - (maxX - minX + 1) * s) / 2 - minX * s, oy = (70 - (maxY - minY + 1) * s) / 2 - minY * s;
+    c.save(); c.translate(ox, oy); cells.forEach(([x, y]) => drawCell(c, x, y, s, t)); c.restore();
+  }
+  function draw() {
+    g.fillStyle = '#10131c'; g.fillRect(0, 0, cv.width, cv.height);
+    g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1;
+    for (let x = 1; x < COLS; x++) { g.beginPath(); g.moveTo(x * CELL + 0.5, 0); g.lineTo(x * CELL + 0.5, ROWS * CELL); g.stroke(); }
+    for (let y = 1; y < ROWS; y++) { g.beginPath(); g.moveTo(0, y * CELL + 0.5); g.lineTo(COLS * CELL, y * CELL + 0.5); g.stroke(); }
+    for (let y = HID; y < ROWS + HID; y++) for (let x = 0; x < COLS; x++) if (grid[y][x]) drawCell(g, x, y - HID, CELL, grid[y][x]);
+    if (!over && cur) {
+      const gy = ghostY();
+      ttCells(cur.t, cur.r).forEach(([cx, cy]) => { if (gy + cy >= HID) drawCell(g, cur.x + cx, gy + cy - HID, CELL, cur.t, true); });
+      ttCells(cur.t, cur.r).forEach(([cx, cy]) => { if (cur.y + cy >= HID) drawCell(g, cur.x + cx, cur.y + cy - HID, CELL, cur.t); });
+    }
+    if (junk) { g.fillStyle = '#ef4b4b'; g.fillRect(cv.width - 5, cv.height - Math.min(ROWS, junk) * CELL, 5, Math.min(ROWS, junk) * CELL); }
+    let msg = '';
+    if (countdown > 0) msg = String(Math.ceil(countdown));
+    else if (versus && opps.size) { // versus: last one standing wins
+      const left = alive();
+      if (!over && !left.length) msg = 'You win!';
+      else if (over) msg = left.length === 1 ? `${left[0][1].name} wins!` : left.length ? 'Out! Watching…' : 'Game over';
+    } else if (over) msg = 'Game over';
+    else if (paused) msg = 'Paused';
+    else if (!W.el.classList.contains('active')) msg = 'Click to play';
+    if (msg) { g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, cv.height / 2 - 30, cv.width, 60); g.fillStyle = '#fff'; g.font = 'bold 24px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(msg, cv.width / 2, cv.height / 2 + 8); }
+    drawMini(q('.tt-hold'), hold);
+    const nc = q('.tt-next'), n2 = nc.getContext('2d'); n2.clearRect(0, 0, nc.width, nc.height);
+    queue.slice(0, 3).forEach((t, k) => { const tmp = document.createElement('canvas'); tmp.width = 104; tmp.height = 70; drawMini(tmp, t); n2.drawImage(tmp, 0, k * 84); });
+    q('.tt-stats').innerHTML = `<div><small>Score</small><b>${score}</b></div><div><small>Lines</small><b>${lines}</b></div><div><small>Level</small><b>${level}</b></div>${versus ? '' : `<div><small>Best</small><b>${best}</b></div>`}`;
+    q('.tt-vs').hidden = !live();
+    const box = q('.tt-opps');
+    box.innerHTML = versus && opps.size ? '<h4>Opponents</h4>' : '';
+    if (versus) opps.forEach(o => {
+      const c = el(`<div class="tt-opp${o.over ? ' out' : ''}"><canvas width="60" height="120"></canvas><span></span></div>`);
+      c.querySelector('span').textContent = `${o.name} · ${o.score}${o.over ? ' · out' : ''}`; c.querySelector('span').style.color = o.color;
+      const cc = c.firstChild.getContext('2d'); cc.fillStyle = '#10131c'; cc.fillRect(0, 0, 60, 120);
+      [...(o.g || '')].forEach((ch, i) => { if (ch !== '.' && TT_COLORS[ch]) { cc.fillStyle = TT_COLORS[ch]; cc.fillRect((i % COLS) * 6, Math.floor(i / COLS) * 6, 6, 6); } });
+      box.append(c);
+    });
+  }
+  function frame(t) {
+    const dt = Math.min(100, t - last || 0); last = t;
+    if (countdown > 0) countdown -= dt / 1000;
+    else if (!over && !paused && (W.el.classList.contains('active') || versus)) { // versus doesn't pause when you click away
+      const speed = Math.max(30, Math.pow(0.8 - (level - 1) * 0.007, level - 1) * 1000) / (keys.soft ? 20 : 1);
+      dropT += dt;
+      while (dropT >= speed) { dropT -= speed; if (move(0, 1)) { if (keys.soft) score++; } else break; }
+      if (!fits(cur.x, cur.y + 1, cur.r)) { lockT += dt; if (lockT >= 500) lock(); } else lockT = 0;
+      for (const dir of ['left', 'right']) if (keys[dir]) { keys[dir].t += dt; while (keys[dir].t >= keys[dir].next) { move(dir === 'left' ? -1 : 1, 0); keys[dir].t -= keys[dir].next; keys[dir].next = 40; } }
+      share();
+    }
+    draw();
+    raf = requestAnimationFrame(frame);
+  }
+  const keys = { left: null, right: null, soft: false };
+  const press = k => {
+    if (k === 'left' || k === 'right') { move(k === 'left' ? -1 : 1, 0); keys[k] = { t: 0, next: 160 }; }
+    else if (k === 'soft') keys.soft = true;
+    else if (k === 'rot') rotate(1); else if (k === 'rotb') rotate(-1);
+    else if (k === 'drop') hardDrop(); else if (k === 'hold') doHold();
+    else if (k === 'pause' && !versus && !over) paused = !paused;
+  };
+  const release = k => { if (k === 'left' || k === 'right') keys[k] = null; else if (k === 'soft') keys.soft = false; };
+  const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'soft', ArrowUp: 'rot', x: 'rot', X: 'rot', z: 'rotb', Z: 'rotb', Control: 'rotb', ' ': 'drop', c: 'hold', C: 'hold', Shift: 'hold', p: 'pause', P: 'pause', Escape: 'pause' };
+  const onKey = e => {
+    const k = KEYS[e.key]; if (!k || !W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
+    e.preventDefault();
+    if (e.type === 'keydown') { if (!e.repeat) press(k); } else release(k);
+  };
+  document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKey);
+  W.body.querySelectorAll('.tt-touch button').forEach(b => {
+    b.addEventListener('pointerdown', e => { e.preventDefault(); press(b.dataset.k); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => release(b.dataset.k)));
+  });
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } ttWin = null; };
+  ttWin = W;
+  start(); raf = requestAnimationFrame(frame);
+  return W;
+}
+
+/* ---------- guess the drawing ---------- */
+// For a multiplayer room: one person draws a secret word, the others type guesses. Faster guesses score
+// more; the drawer scores for every right guess. Letters of the word appear as hints over time.
+// The opener's computer runs the turns, timer and scores; the drawing is sent stroke by stroke.
+const GD_WORDS = ('apple banana pizza burger cake cookie donut icecream sandwich carrot cheese egg bread coffee popcorn ' +
+  'cat dog fish bird rabbit horse cow pig sheep duck frog snake spider bee butterfly turtle penguin elephant giraffe lion monkey shark whale octopus dinosaur ' +
+  'house castle tree flower sun moon star cloud rain rainbow snowman mountain volcano island beach river bridge tower lighthouse tent ' +
+  'car bus train plane rocket boat bicycle tractor helicopter submarine skateboard ' +
+  'guitar piano drum trumpet microphone headphones camera phone computer keyboard mouse television robot lamp clock key lock door window chair bed ' +
+  'ball kite balloon present candle crown sword shield bow arrow hammer ladder umbrella glasses hat shoe sock shirt backpack ring ' +
+  'ghost dragon unicorn alien mermaid wizard pirate ninja zombie vampire superhero king queen princess knight ' +
+  'football basketball tennis bowling fishing swimming skiing ' +
+  'heart smile eye nose hand foot tooth skeleton brain ' +
+  'pencil book scissors paint envelope map compass magnet battery lightbulb rocketship snowflake fire waterfall tornado').split(' ');
+let gdWin = null;
+function openGuessDraw() {
+  if (gdWin) { focusWin(gdWin); return gdWin; }
+  const CW = 800, CH = 520;
+  const W = makeWin({ title: 'Guess the Drawing', icon: I.guessdraw, w: 1000, h: 660 });
+  W.body.innerHTML = '<div class="gd"><div class="gd-top"><span class="gd-round"></span><b class="gd-hint"></b><span class="gd-time"></span></div>'
+    + '<div class="gd-main"><div class="gd-players"></div><div class="gd-center"><div class="gd-stage"><canvas class="gd-c" width="800" height="520"></canvas><div class="gd-over"></div></div><div class="gd-tools"></div></div>'
+    + '<div class="gd-chat"><div class="gd-log" role="log"></div><form class="gd-form"><input class="gd-in" maxlength="60" placeholder="Type your guess here" autocomplete="off" aria-label="Guess"></form></div></div></div>';
+  const q = sel => W.body.querySelector(sel), cv = q('.gd-c'), g = cv.getContext('2d');
+  const words = [...GD_WORDS, ...(typeof GUESS_WORDS !== 'undefined' && Array.isArray(GUESS_WORDS) ? GUESS_WORDS : [])].map(w => String(w).trim().toLowerCase()).filter(Boolean);
+  const fresh = () => ({ phase: 'lobby', rounds: 3, total: 80, round: 0, order: [], turn: -1, drawer: null, word: '', choices: [], shown: [], left: 0, scores: {}, guessed: [], log: [] });
+  let st = fresh(), timer = null;
+  const players = () => [mp.self, ...[...mp.peers.values()].map(p => p.id)];
+  const norm = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const lev = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+  // ---- the game itself (runs on the computer that holds it) ----
+  const say = (text, extra = {}) => { st.log.push({ text, ...extra }); if (st.log.length > 60) st.log.shift(); };
+  const push = () => { draw(); W.push({ st }); };
+  function clearCanvas() { g.fillStyle = '#fff'; g.fillRect(0, 0, CW, CH); }
+  function startGame(opts = {}) {
+    const order = players();
+    if (order.length < 2) return;
+    Object.assign(st, fresh(), { rounds: opts.rounds || st.rounds, total: opts.total || st.total, order: shuffleBy(order), round: 1, log: [] });
+    order.forEach(id => { st.scores[id] = 0; });
+    say('Game started!', { sys: 1 }); nextTurn();
+  }
+  function nextTurn() {
+    st.turn++;
+    if (st.turn >= st.order.length) { st.turn = 0; st.round++; }
+    if (st.round > st.rounds) { st.phase = 'end'; st.drawer = null; say('Game over!', { sys: 1 }); return push(); }
+    const here = players();
+    st.drawer = st.order[st.turn];
+    if (!here.includes(st.drawer)) return nextTurn(); // they left
+    st.choices = shuffleBy([...words]).slice(0, 3); st.word = ''; st.shown = []; st.guessed = []; st.phase = 'choose'; st.left = 15;
+    clearCanvas(); W.push({ op: 'clear' });
+    say(`${personName(st.drawer)} is choosing a word…`, { sys: 1 }); push();
+  }
+  function pick(i, from) {
+    if (st.phase !== 'choose' || from !== st.drawer || !st.choices[i]) return;
+    st.word = st.choices[i]; st.phase = 'draw'; st.left = st.total; push();
+  }
+  function endTurn() {
+    st.phase = 'reveal'; st.left = 5;
+    say(`The word was "${st.word}"`, { sys: 1 }); push();
+  }
+  function guess(text, from) {
+    text = String(text).slice(0, 60).trim(); if (!text) return;
+    const name = personName(from), color = from === mp.self ? me.color : ([...mp.peers.values()].find(p => p.id === from) || {}).color;
+    if (st.phase === 'draw' && from !== st.drawer && !st.guessed.includes(from)) {
+      if (norm(text) === norm(st.word)) {
+        st.guessed.push(from);
+        st.scores[from] = (st.scores[from] || 0) + 50 + Math.round(250 * st.left / st.total);
+        st.scores[st.drawer] = (st.scores[st.drawer] || 0) + 40;
+        say(`${name} guessed the word!`, { sys: 1, good: 1 });
+        if (st.order.filter(id => id !== st.drawer && players().includes(id)).every(id => st.guessed.includes(id))) return endTurn();
+        return push();
+      }
+      if (st.word.length >= 4 && lev(norm(text), norm(st.word)) === 1) say(`"${text}" is close!`, { sys: 1, to: from });
+    } else if (st.phase === 'draw' && norm(text).includes(norm(st.word))) { say(`${name}: (hidden, no spoilers)`, { color }); return push(); } // the drawer or someone who got it
+    say(text, { name, color }); push();
+  }
+  function tick() {
+    if (!isLead(W) || !['choose', 'draw', 'reveal'].includes(st.phase)) return;
+    st.left--;
+    if (st.phase === 'choose' && st.left <= 0) return pick(Math.floor(Math.random() * 3), st.drawer);
+    if (st.phase === 'draw') {
+      const letters = [...st.word].map((c, i) => i).filter(i => /[a-z0-9]/i.test(st.word[i]) && !st.shown.includes(i));
+      if ((st.left === Math.floor(st.total / 2) || st.left === Math.floor(st.total / 4)) && letters.length > 2) st.shown.push(letters[Math.floor(Math.random() * letters.length)]);
+      if (st.left <= 0) return endTurn();
+    }
+    if (st.phase === 'reveal' && st.left <= 0) return nextTurn();
+    W.push({ st }); draw();
+  }
+  timer = setInterval(tick, 1000);
+  const ask = (d, fn) => { if (isLead(W)) fn(mp.self); else sendInput(W, d); };
+  W.onInput = (d, from) => {
+    if (d.guess != null) guess(d.guess, from);
+    else if (d.pick != null) pick(d.pick | 0, from);
+    else if (d.start) startGame(d.start);
+    else if (d.lobby) { st = fresh(); push(); }
+  };
+
+  // ---- drawing ----
+  const COLORS = ['#000000', '#ffffff', '#7f7f7f', '#c1c1c1', '#ef130b', '#ff7100', '#ffe400', '#00cc00', '#00b2ff', '#231fd3', '#a300ba', '#d37caa', '#a0522d', '#592f2a', '#ecbcb4', '#004d1f'];
+  let color = '#000000', size = 6, drawing = null;
+  const canDraw = () => st.phase === 'draw' && st.drawer === mp.self;
+  const at = e => { const r = lrect(cv); return [(cX(e) - r.left) / r.width * CW, (cY(e) - r.top) / r.height * CH]; };
+  function line(x1, y1, x2, y2, c, w) { g.strokeStyle = c; g.lineWidth = w; g.lineCap = 'round'; g.lineJoin = 'round'; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+  cv.addEventListener('pointerdown', e => {
+    if (!canDraw()) return;
+    cv.setPointerCapture(e.pointerId); const [x, y] = at(e); drawing = [x, y];
+    line(x, y, x + 0.01, y, color, size); W.push({ op: 'l', a: [x, y, x + 0.01, y].map(Math.round), c: color, w: size });
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!drawing || !canDraw()) return;
+    const [x, y] = at(e); line(...drawing, x, y, color, size);
+    W.push({ op: 'l', a: [...drawing, x, y].map(Math.round), c: color, w: size }); drawing = [x, y];
+  });
+  ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { drawing = null; }));
+  const tools = q('.gd-tools');
+  tools.innerHTML = COLORS.map(c => `<button class="gd-col" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('')
+    + [3, 6, 14, 28].map(s => `<button class="gd-size" data-s="${s}" aria-label="Size ${s}"><i style="width:${Math.min(22, s)}px;height:${Math.min(22, s)}px"></i></button>`).join('')
+    + '<button class="tbtn gd-clear">Clear</button>';
+  const paintTools = () => { tools.querySelectorAll('.gd-col').forEach(b => b.classList.toggle('on', b.dataset.c === color)); tools.querySelectorAll('.gd-size').forEach(b => b.classList.toggle('on', +b.dataset.s === size)); };
+  tools.querySelectorAll('.gd-col').forEach(b => b.onclick = () => { color = b.dataset.c; paintTools(); });
+  tools.querySelectorAll('.gd-size').forEach(b => b.onclick = () => { size = +b.dataset.s; paintTools(); });
+  q('.gd-clear').onclick = () => { if (canDraw()) { clearCanvas(); W.push({ op: 'clear' }); } };
+  paintTools(); clearCanvas();
+
+  // ---- screen ----
+  function draw() {
+    const here = players(), mine = st.drawer === mp.self, knows = mine || st.guessed.includes(mp.self) || st.phase === 'reveal' || st.phase === 'end';
+    q('.gd-round').textContent = st.phase === 'lobby' ? 'Lobby' : st.phase === 'end' ? 'Game over' : `Round ${Math.min(st.round, st.rounds)} of ${st.rounds}`;
+    q('.gd-time').textContent = ['choose', 'draw', 'reveal'].includes(st.phase) ? `⏱ ${Math.max(0, st.left)}` : '';
+    q('.gd-hint').textContent = st.phase === 'draw' ? (knows ? st.word.toUpperCase() : [...st.word].map((c, i) => /[a-z0-9]/i.test(c) ? (st.shown.includes(i) ? c.toUpperCase() : '_') : c).join(' ') + `  (${st.word.replace(/[^a-z0-9]/gi, '').length})`) : '';
+    const ranked = [...new Set([...st.order, ...here])].sort((a, b) => (st.scores[b] || 0) - (st.scores[a] || 0));
+    q('.gd-players').innerHTML = ranked.map((id, k) => `<div class="gd-p${st.guessed.includes(id) ? ' got' : ''}${id === st.drawer ? ' drawing' : ''}${here.includes(id) ? '' : ' gone'}"><b>#${k + 1}</b><span>${esc(personName(id))}${id === mp.self ? ' (you)' : ''}</span><small>${st.scores[id] || 0} pts</small>${id === st.drawer ? '<i>✏️</i>' : ''}</div>`).join('');
+    const over = q('.gd-over');
+    let html = '';
+    if (st.phase === 'lobby') html = here.length < 2
+      ? `<h3>Guess the Drawing</h3><p>You need at least 2 people in a multiplayer room.</p><button class="okbtn gd-mp">Open Multiplayer</button>`
+      : `<h3>Guess the Drawing</h3><p>${here.length} players here. Each person draws once per round.</p><div class="gd-opts">Rounds <select class="gd-r"><option>2</option><option selected>3</option><option>5</option></select> Draw time <select class="gd-t"><option>60</option><option selected>80</option><option>120</option></select> s</div><button class="okbtn gd-go">Start game</button>`;
+    else if (st.phase === 'choose') html = mine ? '<h3>Choose a word to draw</h3><div class="gd-picks">' + st.choices.map((w, i) => `<button class="okbtn" data-i="${i}">${esc(w)}</button>`).join('') + '</div>' : `<h3>${esc(personName(st.drawer))} is choosing a word…</h3>`;
+    else if (st.phase === 'reveal') html = `<h3>The word was <u>${esc(st.word)}</u></h3>`;
+    else if (st.phase === 'end') html = '<h3>🏆 Results</h3><ol class="gd-pod">' + ranked.slice(0, 5).map(id => `<li>${esc(personName(id))} · ${st.scores[id] || 0} pts</li>`).join('') + '</ol><button class="okbtn gd-again">Back to lobby</button>';
+    if (over.dataset.html !== html) {
+      over.dataset.html = html; over.innerHTML = html; over.hidden = !html;
+      const go = over.querySelector('.gd-go'); if (go) go.onclick = () => { const opts = { rounds: +over.querySelector('.gd-r').value, total: +over.querySelector('.gd-t').value }; ask({ start: opts }, () => startGame(opts)); };
+      const mpb = over.querySelector('.gd-mp'); if (mpb) mpb.onclick = openMpPanel;
+      over.querySelectorAll('.gd-picks button').forEach(b => b.onclick = () => ask({ pick: +b.dataset.i }, who => pick(+b.dataset.i, who)));
+      const again = over.querySelector('.gd-again'); if (again) again.onclick = () => ask({ lobby: 1 }, () => { st = fresh(); push(); });
+    }
+    tools.hidden = !canDraw(); cv.style.cursor = canDraw() ? 'crosshair' : 'default';
+    const input = q('.gd-in'); input.placeholder = mine && st.phase === 'draw' ? 'You are drawing! (chat only)' : 'Type your guess here';
+    const log = q('.gd-log'), lines = st.log.filter(m => !m.to || m.to === mp.self), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 30;
+    if (log.dataset.n !== String(st.log.length) || log.dataset.last !== JSON.stringify(st.log[st.log.length - 1] || '')) {
+      log.dataset.n = st.log.length; log.dataset.last = JSON.stringify(st.log[st.log.length - 1] || '');
+      log.replaceChildren(...lines.map(m => {
+        const d = el(`<div class="gd-m${m.sys ? ' sys' : ''}${m.good ? ' good' : ''}"></div>`);
+        if (m.name) { const b = el('<b></b>'); b.textContent = m.name + ': '; b.style.color = m.color || '#333'; d.append(b); }
+        d.append(document.createTextNode(m.text)); return d;
+      }));
+      if (atEnd) log.scrollTop = log.scrollHeight;
+    }
+  }
+  q('.gd-form').onsubmit = e => { e.preventDefault(); const i = q('.gd-in'), v = i.value; i.value = ''; if (v.trim()) ask({ guess: v }, who => guess(v, who)); };
+  shareState(W, () => ({ st, img: cv.toDataURL('image/png') }), d => {
+    if (d.st) { st = d.st; draw(); }
+    if (d.img) { const im = new Image(); im.onload = () => { clearCanvas(); g.drawImage(im, 0, 0); }; im.src = d.img; }
+    if (d.op === 'clear') clearCanvas();
+    else if (d.op === 'l' && Array.isArray(d.a)) line(...d.a, d.c, d.w);
+  });
+  const peersT = setInterval(draw, 2000); // people joining and leaving the room
+  W.onClose = () => { clearInterval(timer); clearInterval(peersT); gdWin = null; };
+  gdWin = W;
+  draw();
+  return W;
+}
+
+/* ---------- rhythm keys (4-key falling notes, like osu!mania) ---------- */
+// Plays any song in the site. There are no hand-made charts: the song is decoded and its beats are found
+// (sudden jumps in bass, middle and treble loudness); bass beats lean to the left lanes, treble to the right.
+// Hit D F J K (or tap the lanes) as notes cross the line. In a room, "Play together" starts the same song
+// for everyone at once with a live scoreboard.
+const RK_JUDGE = [['Perfect', 40, 300, '#7df9ff'], ['Great', 80, 200, '#7dff8a'], ['Good', 120, 100, '#ffe066']]; // window in ms
+const RK_MISS = 150;
+const RK_DIFF = { Easy: { k: 1.7, gap: 300, max: 2.2, chords: 0 }, Normal: { k: 1.35, gap: 190, max: 4.5, chords: 0.05 }, Hard: { k: 1.12, gap: 120, max: 8, chords: 0.14 } };
+const rkCharts = {}, rkBuffers = {};
+let rkCtx = null;
+async function rkDecode(src) {
+  rkCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  return rkBuffers[src] ||= fetch(urlOf(src)).then(r => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); }).then(b => rkCtx.decodeAudioData(b));
+}
+function rkChart(buf, diff, seed) { // find beats and turn them into notes: [{ t (s), lane }]
+  const D = RK_DIFF[diff], sr = buf.sampleRate, hop = Math.round(sr * 0.01), n = buf.length;
+  const chs = [...Array(buf.numberOfChannels).keys()].map(c => buf.getChannelData(c));
+  const frames = Math.floor(n / hop), bands = [new Float32Array(frames), new Float32Array(frames), new Float32Array(frames)];
+  const aLow = 1 - Math.exp(-2 * Math.PI * 180 / sr), aHigh = 1 - Math.exp(-2 * Math.PI * 2500 / sr);
+  let lp = 0, lp2 = 0;
+  for (let f = 0; f < frames; f++) { // one-pole filters split the sound into bass / middle / treble
+    let eL = 0, eM = 0, eH = 0;
+    for (let i = f * hop, end = i + hop; i < end; i++) {
+      let s = 0; for (const ch of chs) s += ch[i]; s /= chs.length;
+      lp += aLow * (s - lp); lp2 += aHigh * (s - lp2);
+      const low = lp, high = s - lp2, mid = lp2 - lp;
+      eL += low * low; eM += mid * mid; eH += high * high;
+    }
+    bands[0][f] = Math.sqrt(eL / hop); bands[1][f] = Math.sqrt(eM / hop); bands[2][f] = Math.sqrt(eH / hop);
+  }
+  const flux = bands.map(b => { const o = new Float32Array(frames); for (let f = 1; f < frames; f++) o[f] = Math.max(0, b[f] - b[f - 1]); return o; });
+  const norm = flux.map(o => { let m = 1e-9; for (const v of o) m = Math.max(m, v); return o.map(v => v / m); }); // each band counts the same
+  const on = new Float32Array(frames); for (let f = 0; f < frames; f++) on[f] = norm[0][f] * 1.2 + norm[1][f] + norm[2][f] * 0.9;
+  // 1) find the beats
+  const beats = [], W = 40; // 0.4 s around each frame sets the bar
+  let sum = 0; for (let f = 0; f < Math.min(frames, W * 2); f++) sum += on[f];
+  let lastT = -9;
+  for (let f = 1; f < frames - 1; f++) {
+    const a = Math.max(0, f - W), b = Math.min(frames, f + W);
+    if (f > W && f + W < frames) sum += on[f + W] - on[f - W - 1];
+    const mean = sum / (b - a), v = on[f];
+    if (v < mean * D.k + 0.04 || v < on[f - 1] || v < on[f + 1]) continue;
+    const t = f * hop / sr;
+    if ((t - lastT) * 1000 < D.gap) continue;
+    const s3 = norm[0][f] + norm[1][f] + norm[2][f] || 1;
+    beats.push({ t, side: (norm[2][f] - norm[0][f]) / s3, strong: v > mean * D.k * 2.2 }); lastT = t;
+  }
+  // 2) lanes: how bass- or treble-heavy a beat is compared with the rest of this song picks left or right,
+  //    and a lane that's been quiet longer wins ties, so all four get used
+  const order = beats.map(x => x.side).sort((p, q) => p - q), rank = v => { let lo = 0, hi = order.length; while (lo < hi) { const m = (lo + hi) >> 1; if (order[m] < v) lo = m + 1; else hi = m; } return lo / Math.max(1, order.length - 1); };
+  const notes = [], rnd = seededRandom(seed + diff), lastIn = [-9, -9, -9, -9];
+  for (const bt of beats) {
+    const want = rank(bt.side) * 3, t = bt.t;
+    const lane = [0, 1, 2, 3].map(l => ({ l, score: -Math.abs(l - want) * 0.7 + Math.min(1, (t - lastIn[l]) / 0.8) + rnd() * 0.5 - ((t - lastIn[l]) * 1000 < D.gap ? 5 : 0) }))
+      .sort((p, q) => q.score - p.score)[0].l;
+    notes.push({ t, lane }); lastIn[lane] = t;
+    if (bt.strong && rnd() < D.chords) { // strong hits sometimes become two keys at once
+      const other = [0, 1, 2, 3].filter(l => l !== lane && (t - lastIn[l]) * 1000 > D.gap)[0];
+      if (other != null) { notes.push({ t, lane: other }); lastIn[other] = t; }
+    }
+  }
+  // keep it playable: no more than D.max notes in any second
+  const out = []; for (const nt of notes) if (out.filter(o => nt.t - o.t < 1).length < D.max) out.push(nt);
+  return out;
+}
+let rkWin = null;
+function openRhythm() {
+  if (rkWin) { focusWin(rkWin); return rkWin; }
+  const LW = 90, H = 600, JY = 520, KEYS = ['d', 'f', 'j', 'k'];
+  const W = makeWin({ title: 'Rhythm Keys', icon: I.rhythm, w: 640, h: 700 });
+  W.body.innerHTML = '<div class="rk"><div class="rk-menu"></div><div class="rk-play" hidden><canvas class="rk-c" width="360" height="600" aria-label="Playfield"></canvas><div class="rk-live"></div></div></div>';
+  const q = sel => W.body.querySelector(sel), cv = q('.rk-c'), g = cv.getContext('2d');
+  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && !songs.some(s => s.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
+  let song = songs[0], diff = store.get('rk-diff', 'Normal'), speed = store.get('rk-speed', 700), offset = store.get('rk-offset', 0);
+  let game = null, raf = 0, gain = null, together = null;
+  const others = new Map(); // live scores in a shared song
+  mixChannel(W, 'rhythm', 0.8, v => { if (gain) gain.gain.value = v; }, { label: () => 'Rhythm Keys' });
+  const best = (s, d) => store.get(`rk-best:${s.src}:${d}`, null);
+  function menu(msg = '') {
+    q('.rk-play').hidden = true; q('.rk-menu').hidden = false;
+    q('.rk-menu').innerHTML = '<h2>Rhythm Keys</h2><p class="dim">Hit <kbd>D</kbd> <kbd>F</kbd> <kbd>J</kbd> <kbd>K</kbd> as notes reach the line (or tap the lanes). Charts are made from the song itself.</p>'
+      + (songs.length ? '<h4>Song</h4><div class="rk-songs">' + songs.map((s, i) => { const b = best(s, diff); return `<button class="rk-song${s === song ? ' on' : ''}" data-i="${i}">${esc(s.name.replace(/\.[^.]+$/, ''))}<small>${b ? `Best ${b.score} · ${b.grade}` : 'Not played'}</small></button>`; }).join('') + '</div>'
+        : '<p>No songs yet: add some to the Music folder in config.js.</p>')
+      + '<h4>Difficulty</h4><div class="rk-diffs">' + Object.keys(RK_DIFF).map(d => `<button class="tbtn rk-diff${d === diff ? ' on' : ''}" data-d="${d}">${d}</button>`).join('') + '</div>'
+      + `<div class="rk-opts"><label>Scroll speed <input type="range" class="rk-speed" min="400" max="1400" step="50" value="${speed}"></label><label>Timing offset <input type="number" class="rk-off" value="${offset}" step="5" style="width:60px"> ms</label></div>`
+      + `<div class="rk-go"><button class="okbtn rk-start">Play</button>${live() ? '<button class="okbtn rk-together">Play together (everyone in the room)</button>' : ''}</div><p class="rk-msg">${esc(msg)}</p>`;
+    q('.rk-menu').querySelectorAll('.rk-song').forEach(b => b.onclick = () => { song = songs[+b.dataset.i]; menu(); });
+    q('.rk-menu').querySelectorAll('.rk-diff').forEach(b => b.onclick = () => { diff = b.dataset.d; store.set('rk-diff', diff); menu(); });
+    const sp = q('.rk-speed'); if (sp) sp.oninput = () => { speed = +sp.value; store.set('rk-speed', speed); };
+    const of = q('.rk-off'); if (of) of.onchange = () => { offset = +of.value || 0; store.set('rk-offset', offset); };
+    const st = q('.rk-start'); if (st) st.onclick = () => play(song, diff);
+    const tg = q('.rk-together'); if (tg) tg.onclick = () => { const r = { src: song.src, diff, id: Date.now() }; W.push({ together: r }); play(song, diff, r); };
+  }
+  async function play(s, d, tog = null) {
+    if (!s) return;
+    q('.rk-menu').querySelector('.rk-msg').textContent = 'Listening to the song and making the chart…';
+    try {
+      const buf = await rkDecode(s.src);
+      const key = `${s.src}|${d}`; rkCharts[key] ||= rkChart(buf, d, s.src);
+      if (rkCtx.state === 'suspended') await rkCtx.resume();
+      setMusic(false); if (playerWin) { const a = playerWin.body.querySelector('audio'); if (a) a.pause(); }
+      together = tog; others.clear();
+      const src = rkCtx.createBufferSource(); src.buffer = buf; gain = rkCtx.createGain(); W.audio.apply(); src.connect(gain).connect(rkCtx.destination);
+      const lead = 2.2, t0 = rkCtx.currentTime + lead; src.start(t0);
+      game = { s, d, src, t0, notes: rkCharts[key].map(n => ({ ...n, hit: null })), score: 0, combo: 0, maxCombo: 0, counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, flash: [0, 0, 0, 0], held: [0, 0, 0, 0], pops: [], end: buf.duration, done: false };
+      src.onended = () => finish();
+      q('.rk-menu').hidden = true; q('.rk-play').hidden = false;
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
+    } catch (e) { menu(`Couldn't play that song (${e.message || e}).`); }
+  }
+  const now = () => rkCtx.currentTime - game.t0 - (rkCtx.outputLatency || rkCtx.baseLatency || 0) - offset / 1000; // song time the ear hears
+  function judge(lane) {
+    if (!game || game.done) return;
+    game.flash[lane] = 1; game.held[lane] = 1;
+    const t = now(), n = game.notes.find(x => x.lane === lane && !x.hit && Math.abs(x.t - t) * 1000 <= RK_MISS);
+    if (!n) return;
+    const ms = Math.abs(n.t - t) * 1000, j = RK_JUDGE.find(([, w]) => ms <= w);
+    if (!j) { n.hit = 'Miss'; return miss(); }
+    n.hit = j[0]; game.counts[j[0]]++; game.combo++; game.maxCombo = Math.max(game.maxCombo, game.combo);
+    game.score += Math.round(j[2] * (1 + Math.min(game.combo, 100) / 100));
+    game.pops.push({ text: j[0], color: j[3], at: performance.now() });
+  }
+  function miss() { game.counts.Miss++; game.combo = 0; game.pops.push({ text: 'Miss', color: '#ff5a5a', at: performance.now() }); }
+  const accuracy = () => { const c = game.counts, total = c.Perfect + c.Great + c.Good + c.Miss; return total ? (c.Perfect * 300 + c.Great * 200 + c.Good * 100) / (total * 300) * 100 : 100; };
+  const grade = a => a >= 95 ? 'S' : a >= 90 ? 'A' : a >= 80 ? 'B' : a >= 70 ? 'C' : 'D';
+  let liveT = 0;
+  function frame() {
+    if (!game) return;
+    const t = now();
+    game.notes.forEach(n => { if (!n.hit && (t - n.t) * 1000 > RK_MISS) { n.hit = 'Miss'; miss(); } });
+    // draw
+    g.fillStyle = '#0d0f17'; g.fillRect(0, 0, 360, H);
+    for (let l = 0; l < 4; l++) {
+      g.fillStyle = l % 2 ? '#141826' : '#111421'; g.fillRect(l * LW, 0, LW, H);
+      if (game.flash[l] > 0) { const gr = g.createLinearGradient(0, JY, 0, JY - 260); gr.addColorStop(0, `rgba(120,170,255,${0.35 * game.flash[l]})`); gr.addColorStop(1, 'rgba(120,170,255,0)'); g.fillStyle = gr; g.fillRect(l * LW, JY - 260, LW, 260); game.flash[l] = Math.max(0, game.flash[l] - 0.08); }
+    }
+    g.fillStyle = '#e6ecff'; g.fillRect(0, JY - 2, 360, 4);
+    for (let l = 0; l < 4; l++) { // keys at the bottom
+      g.fillStyle = game.held[l] ? '#9db7ff' : '#262b40'; g.fillRect(l * LW + 6, JY + 14, LW - 12, 48);
+      g.fillStyle = game.held[l] ? '#0d0f17' : '#9aa6c8'; g.font = 'bold 20px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(KEYS[l].toUpperCase(), l * LW + LW / 2, JY + 46);
+    }
+    for (const n of game.notes) {
+      if (n.hit) continue;
+      const y = JY - (n.t - t) * speed;
+      if (y < -30) break;
+      if (y > H + 30) continue;
+      const c = n.lane === 0 || n.lane === 3 ? ['#c9d6ff', '#7f9cff'] : ['#ffd3f0', '#ff7ac8'];
+      const gr = g.createLinearGradient(0, y - 10, 0, y + 10); gr.addColorStop(0, c[0]); gr.addColorStop(1, c[1]);
+      g.fillStyle = gr; g.beginPath(); g.roundRect(n.lane * LW + 6, y - 10, LW - 12, 20, 6); g.fill();
+    }
+    const pop = game.pops[game.pops.length - 1];
+    if (pop && performance.now() - pop.at < 500) { g.globalAlpha = 1 - (performance.now() - pop.at) / 500; g.fillStyle = pop.color; g.font = 'bold 30px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(pop.text, 180, 300); g.globalAlpha = 1; }
+    g.fillStyle = '#fff'; g.font = 'bold 22px Segoe UI, sans-serif'; g.textAlign = 'right'; g.fillText(game.score, 350, 30);
+    g.font = '14px Segoe UI, sans-serif'; g.fillText(accuracy().toFixed(2) + '%', 350, 50);
+    if (game.combo > 1) { g.textAlign = 'center'; g.font = 'bold 40px Segoe UI, sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(game.combo, 180, 240); }
+    if (t < 0) { g.textAlign = 'center'; g.font = 'bold 48px Segoe UI, sans-serif'; g.fillStyle = '#fff'; g.fillText(Math.ceil(-t), 180, 320); }
+    g.fillStyle = '#7f9cff'; g.fillRect(0, 0, 360 * Math.max(0, Math.min(1, t / game.end)), 3);
+    if (together && performance.now() - liveT > 500) { liveT = performance.now(); W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc: accuracy(), done: false } }); }
+    renderLive();
+    raf = requestAnimationFrame(frame);
+  }
+  function renderLive() {
+    const box = q('.rk-live');
+    if (!together) { box.innerHTML = ''; return; }
+    const rows = [{ name: me.name + ' (you)', color: me.color, score: game ? game.score : 0, acc: game ? accuracy() : 100 }, ...others.values()].sort((a, b) => b.score - a.score);
+    box.innerHTML = '<h4>Together</h4>' + rows.map((r, i) => `<div><b>${i + 1}.</b> <span style="color:${esc(r.color)}">${esc(r.name)}</span> ${r.score} · ${r.acc.toFixed(1)}%${r.done ? ' ✓' : ''}</div>`).join('');
+  }
+  function finish() {
+    if (!game || game.done) return;
+    game.done = true; cancelAnimationFrame(raf);
+    game.notes.forEach(n => { if (!n.hit) { n.hit = 'Miss'; game.counts.Miss++; } });
+    const acc = accuracy(), gr = grade(acc), b = best(game.s, game.d);
+    if (!b || game.score > b.score) store.set(`rk-best:${game.s.src}:${game.d}`, { score: game.score, grade: gr, acc: +acc.toFixed(2) });
+    if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc, done: true } });
+    const c = game.counts;
+    q('.rk-play').hidden = true; q('.rk-menu').hidden = false;
+    q('.rk-menu').innerHTML = `<h2>${esc(game.s.name.replace(/\.[^.]+$/, ''))} · ${game.d}</h2><div class="rk-grade g${gr}">${gr}</div>`
+      + `<div class="rk-res"><div><small>Score</small><b>${game.score}</b></div><div><small>Accuracy</small><b>${acc.toFixed(2)}%</b></div><div><small>Max combo</small><b>${game.maxCombo}</b></div></div>`
+      + `<div class="rk-counts"><span style="color:#2bb3c0">Perfect ${c.Perfect}</span><span style="color:#2e9d3a">Great ${c.Great}</span><span style="color:#b38f00">Good ${c.Good}</span><span style="color:#d33">Miss ${c.Miss}</span></div>`
+      + '<div class="rk-live2"></div><div class="rk-go"><button class="okbtn rk-retry">Retry</button><button class="okbtn rk-back">Song list</button></div>';
+    q('.rk-retry').onclick = () => play(game.s, game.d, null);
+    q('.rk-back').onclick = () => { game = null; menu(); };
+    setMusic(true);
+  }
+  function stop() { if (game && !game.done) { game.done = true; try { game.src.onended = null; game.src.stop(); } catch {} cancelAnimationFrame(raf); setMusic(true); } }
+  // input
+  const laneOf = k => KEYS.indexOf(k.toLowerCase());
+  const onKey = e => {
+    if (!game || game.done || !W.el.classList.contains('active') || e.repeat) return;
+    if (e.key === 'Escape' && e.type === 'keydown') { stop(); game = null; menu('Stopped.'); return; }
+    const l = laneOf(e.key); if (l < 0) return;
+    e.preventDefault();
+    if (e.type === 'keydown') judge(l); else game.held[l] = 0;
+  };
+  document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKey);
+  cv.addEventListener('pointerdown', e => { const r = lrect(cv), l = Math.floor((cX(e) - r.left) / r.width * 4); if (l >= 0 && l < 4) { judge(l); cv.setPointerCapture(e.pointerId); cv.dataset.l = l; } });
+  ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { if (game && cv.dataset.l) game.held[+cv.dataset.l] = 0; }));
+  cv.style.touchAction = 'none';
+  // multiplayer: someone pressed "Play together"; live scores while playing it
+  shareState(W, () => ({}), d => {
+    if (d.together) { const s = songs.find(x => x.src === d.together.src); if (s) { stop(); diff = d.together.diff; song = s; play(s, d.together.diff, d.together); } }
+    else if (d.live && together && d.live.tog === together.id) { others.set(d.live.id, d.live); renderLive(); const lv = q('.rk-live2'); if (lv) lv.innerHTML = q('.rk-live').innerHTML; }
+  });
+  W.onClose = () => { stop(); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); rkWin = null; };
+  rkWin = W;
+  menu();
+  return W;
+}
+
 /* ---------- settings ---------- */
 const RESOLUTIONS = [['Widescreen 16:9', [[1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]],
   ['16:10', [[1280, 800], [1440, 900], [1680, 1050], [1920, 1200]]], ['Square-ish 4:3 and 5:4', [[1024, 768], [1280, 1024]]]];
@@ -3314,7 +4040,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'airhockey', 'tetris', 'guessdraw', 'rhythm', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

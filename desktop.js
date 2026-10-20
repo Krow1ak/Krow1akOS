@@ -2143,7 +2143,7 @@ function openTicTacToe() {
       cells.forEach((c, i) => {
         const v = st.g.b[i];
         c.textContent = v < 0 ? '' : v ? 'O' : 'X';
-        c.className = 'ttt-c' + (v === 0 ? ' x' : v === 1 ? ' o' : '') + (line.includes(i) ? ' win' : '') + (v < 0 && view.mine ? ' can' : '');
+        c.className = 'ttt-c' + (v === 0 ? ' x' : v === 1 ? ' o' : '') + (line.includes(i) ? ' won' : '') + (v < 0 && view.mine ? ' can' : '');
       });
     },
   });
@@ -2220,7 +2220,7 @@ function openConnectFour() {
       const line = st.over && st.over.line || [];
       holes.forEach((h, i) => {
         const v = st.g.b[i];
-        h.className = 'c4-h' + (v === 0 ? ' red' : v === 1 ? ' yel' : '') + (line.includes(i) ? ' win' : '');
+        h.className = 'c4-h' + (v === 0 ? ' red' : v === 1 ? ' yel' : '') + (line.includes(i) ? ' won' : '');
         if (i === st.g.last && i !== lastDrop) { h.style.setProperty('--fall', Math.floor(i / C4_W) + 1); h.classList.add('c4-fall'); }
       });
       lastDrop = st.g.last;

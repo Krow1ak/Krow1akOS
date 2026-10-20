@@ -158,12 +158,60 @@ document.querySelector('#orb').innerHTML = img(ASSETS.startOrb, '', 'Start');
 const wm = document.getElementById('watermark');
 if (ASSETS.watermark) wm.src = ASSETS.watermark; else wm.remove();
 
+/* ---------- taskbar ---------- */
+// Each window has its own button (W.tk), kept out of sight in tkStore; the taskbar shows one button per kind
+// of window. With several windows of a kind the button is stacked, and clicking it lists them to pick from.
+const tasksEl = document.getElementById('tasks'), tkStore = document.createElement('div'), tkButtons = new Map();
+let tkPop = null, tkPopGroup = null, tkQueued = false;
+function renderTasks() {
+  tkQueued = false;
+  const groups = new Map();
+  [...tkStore.children].forEach(t => { const k = t.dataset.group; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(t); });
+  tkButtons.forEach((b, k) => { if (!groups.has(k)) { b.remove(); tkButtons.delete(k); } });
+  [...groups].forEach(([k, list]) => {
+    let b = tkButtons.get(k);
+    if (!b) {
+      b = el('<button class="tk"></button>'); tkButtons.set(k, b);
+      b.onclick = e => { e.stopPropagation(); const l = groups2(k); if (l.length === 1) l[0].click(); else if (tkPopGroup === k) closeTkPop(); else openTkPop(k, b); };
+    }
+    tasksEl.append(b); // keeps the buttons in the order the kinds were first opened
+    const html = list[list.length - 1].innerHTML + (list.length > 1 ? `<span class="tk-n">${list.length}</span>` : '');
+    if (b.innerHTML !== html) b.innerHTML = html;
+    b.classList.toggle('on', list.some(t => t.classList.contains('on')));
+    b.classList.toggle('stack', list.length > 1);
+    b.title = list.map(t => t.title).join('\n');
+  });
+  if (tkPopGroup) { if (groups.has(tkPopGroup) && groups.get(tkPopGroup).length > 1) fillTkPop(); else closeTkPop(); }
+}
+const groups2 = k => [...tkStore.children].filter(t => t.dataset.group === k);
+new MutationObserver(() => { if (!tkQueued) { tkQueued = true; requestAnimationFrame(renderTasks); } })
+  .observe(tkStore, { childList: true, subtree: true, attributes: true, characterData: true });
+function openTkPop(k, b) {
+  closeTkPop(); tkPopGroup = k;
+  tkPop = el('<div id="tkpop" role="menu"></div>'); document.body.append(tkPop);
+  fillTkPop();
+  const r = lrect(b); tkPop.style.left = Math.max(4, Math.min(innerWidth - tkPop.offsetWidth - 4, r.left + r.width / 2 - tkPop.offsetWidth / 2)) + 'px';
+}
+function fillTkPop() {
+  const winOf = t => wins.find(w => w.tk === t);
+  tkPop.replaceChildren(...groups2(tkPopGroup).map(t => {
+    const W = winOf(t), row = el(`<div class="tkp-row${t.classList.contains('on') ? ' on' : ''}${W && W.el.classList.contains('min') ? ' min' : ''}" role="menuitem"><span class="tkp-ic">${t.innerHTML}</span><span class="tkp-t"></span><button class="tkp-x" aria-label="Close">×</button></div>`);
+    row.querySelector('.tkp-t').textContent = t.title;
+    row.onclick = () => { closeTkPop(); if (W) { W.el.classList.remove('min'); focusWin(W); } };
+    row.querySelector('.tkp-x').onclick = e => { e.stopPropagation(); if (W) closeWin(W); };
+    return row;
+  }));
+}
+function closeTkPop() { if (tkPop) tkPop.remove(); tkPop = null; tkPopGroup = null; }
+document.addEventListener('pointerdown', e => { if (tkPop && !e.target.closest('#tkpop, .tk')) closeTkPop(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeTkPop(); });
+
 /* ---------- window manager ---------- */
 const wins = []; let z = 10, cascade = 0;
 const touchy = matchMedia('(hover:none)').matches;
 const el = html => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
 
-function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
+function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false, group = '' }) {
   const dw = innerWidth, dh = innerHeight - 40;
   w = Math.min(w + 16, dw - 20); h = Math.min(h + 8, dh - 20); // sizes are asked for without the frame
   const x = Math.max(10, Math.min(dw - w - 10, (dw - w) / 2 - 120 + cascade * 28));
@@ -175,7 +223,8 @@ function makeWin({ title, icon, w = 640, h = 440, cls = '', noMax = false }) {
     <div class="wbody"></div>${noMax ? '' : ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(d => `<div class="rz ${d}" data-d="${d}"></div>`).join('')}</div>`);
   document.body.insertBefore(win, document.getElementById('taskbar'));
   const tk = el(`<button class="tk">${img(icon)}</button>`);
-  document.getElementById('tasks').append(tk);
+  tk.dataset.group = group || icon; // windows of the same kind share one taskbar button
+  tkStore.append(tk);
   const W = { el: win, body: win.querySelector('.wbody'), tk, onClose: null,
     setTitle(t) { win.querySelector('.ttl').textContent = t; tk.title = t; win.setAttribute('aria-label', t); },
     setIcon(src) { win.querySelector('.ti').innerHTML = img(src); tk.innerHTML = img(src); } };
@@ -407,7 +456,7 @@ function parentOf(target, n = desktop) {
 }
 
 function openExplorer(start) {
-  const W = makeWin({ title: start.name, icon: iconSrc(start), w: 760, h: 500 });
+  const W = makeWin({ title: start.name, icon: iconSrc(start), w: 760, h: 500, group: 'explorer' });
   W.body.innerHTML = `<div class="tools"></div><div class="emain"><nav class="side"></nav><div class="files" role="list"></div></div><div class="details"></div>`;
   const sid = 'search-' + Math.random().toString(36).slice(2);
   const nav = el(`<div class="nav"><button class="nb bk" aria-label="Back">${img(U.back, '')}</button><button class="nb fw" aria-label="Forward">${img(U.forward, '')}</button><button class="nb upb" aria-label="Up one level">${img(U.up, '')}</button><div class="addr"></div><input class="search" id="${sid}" placeholder="Search" aria-label="Search this folder"></div>`);
@@ -4024,8 +4073,9 @@ function openGuessDraw() {
 }
 
 /* ---------- rhythm keys (4-key falling notes, like osu!mania) ---------- */
-// Plays any song in the site. There are no hand-made charts: the song is decoded and its beats are found
-// (sudden jumps in bass, middle and treble loudness); bass beats lean to the left lanes, treble to the right.
+// Plays any song in the site. Songs with a Friday Night Funkin' chart (chart: in config.js) play that chart,
+// held notes included; for the rest the song is decoded and its beats are found (sudden jumps in bass,
+// middle and treble loudness); bass beats lean to the left lanes, treble to the right.
 // Hit D F J K (or tap the lanes) as notes cross the line. In a room, "Play together" starts the same song
 // for everyone at once with a live scoreboard.
 const RK_JUDGE = [['Perfect', 40, 300, '#7df9ff'], ['Great', 80, 200, '#7dff8a'], ['Good', 120, 100, '#ffe066']]; // window in ms
@@ -4088,105 +4138,331 @@ function rkChart(buf, diff, seed) { // find beats and turn them into notes: [{ t
   const out = []; for (const nt of notes) if (out.filter(o => nt.t - o.t < 1).length < D.max) out.push(nt);
   return out;
 }
+// Friday Night Funkin' charts: a song with chart: '...json' in config.js plays that chart instead of a made one.
+// Handles the classic / Psych Engine format (sections with mustHitSection) and the newer FNF one
+// (notes listed per difficulty). Each note: { t (s), lane 0-3 (left, down, up, right), len (s, held notes) }.
+function rkParseFnf(json) {
+  const out = { diffs: {}, speed: 0, bpm: 0 };
+  const tidy = list => { // in time order, without notes stacked on top of each other
+    list.sort((a, b) => a.t - b.t || a.lane - b.lane);
+    return list.filter((n, i) => !list.slice(Math.max(0, i - 4), i).some(o => o.lane === n.lane && n.t - o.t < 0.005));
+  };
+  const skip = type => typeof type === 'string' && /hurt|mine|death|kill/i.test(type); // notes you're meant to avoid
+  if (json && json.notes && !Array.isArray(json.notes) && typeof json.notes === 'object') { // newer FNF: { notes: { easy: [{ t, d, l }] } }
+    for (const [name, list] of Object.entries(json.notes)) {
+      const player = [], opp = [];
+      for (const n of Array.isArray(list) ? list : []) {
+        const d = n.d | 0; if (d < 0 || d > 7 || skip(n.k)) continue;
+        (d < 4 ? player : opp).push({ t: (+n.t || 0) / 1000, lane: d % 4, len: Math.max(0, (+n.l || 0) / 1000) });
+      }
+      out.diffs[name.charAt(0).toUpperCase() + name.slice(1)] = { player: tidy(player), opp: tidy(opp) };
+    }
+    const sp = json.scrollSpeed; out.speed = typeof sp === 'object' && sp ? +(sp.normal || Object.values(sp)[0]) || 0 : +sp || 0;
+    return out;
+  }
+  const song = json && json.song && typeof json.song === 'object' ? json.song : json;
+  const v1 = /psych_v1/.test(song && song.format || ''); // Psych 1.0 keeps the player's notes in 0-3 everywhere
+  const player = [], opp = [];
+  for (const sec of song && Array.isArray(song.notes) ? song.notes : []) for (const n of sec.sectionNotes || []) {
+    const [t, d, len, type] = n; if (typeof t !== 'number' || typeof d !== 'number' || d < 0 || d > 7 || skip(type)) continue;
+    const mine = v1 ? d < 4 : sec.mustHitSection ? d < 4 : d >= 4;
+    (mine ? player : opp).push({ t: t / 1000, lane: d % 4, len: Math.max(0, (+len || 0) / 1000) });
+  }
+  out.diffs.Chart = { player: tidy(player), opp: tidy(opp) };
+  out.speed = +song.speed || 0; out.bpm = +song.bpm || 0;
+  return out;
+}
+const rkFnf = {};
+const rkLoadFnf = path => rkFnf[path] ||= fetch(urlOf(path)).then(r => { if (!r.ok) throw new Error(`chart ${r.status}`); return r.json(); }).then(rkParseFnf)
+  .catch(e => { delete rkFnf[path]; throw e; });
+const RK_ARROW = ['#c24b99', '#00ffff', '#12fa05', '#f9393f']; // left, down, up, right, the usual FNF colours
+const RK_DIFF_COLOR = { Easy: '#4cd964', Normal: '#4aa3ff', Hard: '#ff5a5f', Chart: '#b07cff', Erect: '#ff4fd8', Nightmare: '#ff3b3b' };
+const rkHue = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+const rkTime = s => s ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '–';
+const rkTitle = s => s.name.replace(/\.[^.]+$/, '');
 let rkWin = null;
 function openRhythm() {
   if (rkWin) { focusWin(rkWin); return rkWin; }
-  const LW = 90, H = 600, JY = 520, KEYS = ['d', 'f', 'j', 'k'];
-  const W = makeWin({ title: 'Rhythm Keys', icon: I.rhythm, w: 640, h: 700 });
-  W.body.innerHTML = '<div class="rk"><div class="rk-menu"></div><div class="rk-play" hidden><canvas class="rk-c" width="360" height="600" aria-label="Playfield"></canvas><div class="rk-live"></div></div></div>';
-  const q = sel => W.body.querySelector(sel), cv = q('.rk-c'), g = cv.getContext('2d');
+  const CW = 600, H = 600, PX = 120, LW = 90, JY = 510;
+  const W = makeWin({ title: 'Rhythm Keys', icon: I.rhythm, w: 880, h: 660 });
+  W.body.innerHTML = '<div class="rk"><div class="rk-bg"><i></i><i></i><i></i></div><div class="rk-menu"></div><div class="rk-play" hidden><canvas class="rk-c" width="600" height="600" aria-label="Playfield"></canvas><div class="rk-live"></div></div></div>';
+  const q = sel => W.body.querySelector(sel), cv = q('.rk-c'), g = cv.getContext('2d'), menuEl = q('.rk-menu');
   const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && !songs.some(s => s.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
-  let song = songs[0], diff = store.get('rk-diff', 'Normal'), speed = store.get('rk-speed', 700), offset = store.get('rk-offset', 0);
-  let game = null, raf = 0, gain = null, together = null;
+  const opt = { speed: store.get('rk-speed', 900), offset: store.get('rk-offset', 0), style: store.get('rk-style', 'arrows'), side: store.get('rk-side', 'player'), keys: store.get('rk-keys', ['KeyD', 'KeyF', 'KeyJ', 'KeyK']) };
+  const saveOpt = () => ['speed', 'offset', 'style', 'side', 'keys'].forEach(k => store.set('rk-' + k, opt[k]));
+  let song = songs.find(s => s.src === store.get('rk-song', '')) || songs[0], diff = store.get('rk-diff', 'Normal');
+  let game = null, raf = 0, gain = null, analyser = null, together = null, binding = -1;
   const others = new Map(); // live scores in a shared song
-  mixChannel(W, 'rhythm', 0.8, v => { if (gain) gain.gain.value = v; }, { label: () => 'Rhythm Keys' });
-  const best = (s, d) => store.get(`rk-best:${s.src}:${d}`, null);
-  function menu(msg = '') {
-    q('.rk-play').hidden = true; q('.rk-menu').hidden = false;
-    q('.rk-menu').innerHTML = '<h2>Rhythm Keys</h2><p class="dim">Hit <kbd>D</kbd> <kbd>F</kbd> <kbd>J</kbd> <kbd>K</kbd> as notes reach the line (or tap the lanes). Charts are made from the song itself.</p>'
-      + (songs.length ? '<h4>Song</h4><div class="rk-songs">' + songs.map((s, i) => { const b = best(s, diff); return `<button class="rk-song${s === song ? ' on' : ''}" data-i="${i}">${esc(s.name.replace(/\.[^.]+$/, ''))}<small>${b ? `Best ${b.score} · ${b.grade}` : 'Not played'}</small></button>`; }).join('') + '</div>'
-        : '<p>No songs yet: add some to the Music folder in config.js.</p>')
-      + '<h4>Difficulty</h4><div class="rk-diffs">' + Object.keys(RK_DIFF).map(d => `<button class="tbtn rk-diff${d === diff ? ' on' : ''}" data-d="${d}">${d}</button>`).join('') + '</div>'
-      + `<div class="rk-opts"><label>Scroll speed <input type="range" class="rk-speed" min="400" max="1400" step="50" value="${speed}"></label><label>Timing offset <input type="number" class="rk-off" value="${offset}" step="5" style="width:60px"> ms</label></div>`
-      + `<div class="rk-go"><button class="okbtn rk-start">Play</button>${live() ? '<button class="okbtn rk-together">Play together (everyone in the room)</button>' : ''}</div><p class="rk-msg">${esc(msg)}</p>`;
-    q('.rk-menu').querySelectorAll('.rk-song').forEach(b => b.onclick = () => { song = songs[+b.dataset.i]; menu(); });
-    q('.rk-menu').querySelectorAll('.rk-diff').forEach(b => b.onclick = () => { diff = b.dataset.d; store.set('rk-diff', diff); menu(); });
-    const sp = q('.rk-speed'); if (sp) sp.oninput = () => { speed = +sp.value; store.set('rk-speed', speed); };
-    const of = q('.rk-off'); if (of) of.onchange = () => { offset = +of.value || 0; store.set('rk-offset', offset); };
-    const st = q('.rk-start'); if (st) st.onclick = () => play(song, diff);
-    const tg = q('.rk-together'); if (tg) tg.onclick = () => { const r = { src: song.src, diff, id: Date.now() }; W.push({ together: r }); play(song, diff, r); };
+  const meta = {}; // per song: { len, fnf }
+  let preview = null, previewFor = null; // song preview in the song list
+  mixChannel(W, 'rhythm', 0.8, v => { if (gain) gain.gain.value = v; if (preview) preview.volume = v * 0.6; }, { label: () => 'Rhythm Keys' });
+  const diffsOf = s => s && s.chart ? (meta[s.src] && meta[s.src].fnf ? Object.keys(meta[s.src].fnf.diffs) : ['Chart']) : Object.keys(RK_DIFF);
+  const pickDiff = s => { const l = diffsOf(s); return l.includes(diff) ? diff : l.includes('Normal') ? 'Normal' : l[0]; };
+  const bestKey = (s, d) => `rk-best:${s.src}:${d}${s.chart && opt.side === 'opp' ? ':opp' : ''}`;
+  const best = (s, d) => store.get(bestKey(s, d), null);
+  function learn(s) { // length from the file, BPM and note counts from the chart
+    const m = meta[s.src] ||= {};
+    if (m.len == null) { // let go of the file once its length is known, or it holds a connection open
+      m.len = 0; const a = new Audio(), done = () => { a.onloadedmetadata = a.onerror = null; a.removeAttribute('src'); a.load(); };
+      a.preload = 'metadata'; a.onloadedmetadata = () => { m.len = a.duration; done(); refresh(); }; a.onerror = done; a.src = urlOf(s.src);
+    }
+    if (s.chart && !m.fnf && !m.loading) { m.loading = true; rkLoadFnf(s.chart).then(f => { m.fnf = f; refresh(); }, () => { m.bad = true; refresh(); }); }
   }
+  // song preview, like the song select of most rhythm games
+  function startPreview(s) {
+    if (previewFor === s.src && preview) return;
+    stopPreview(); if (!W.el.classList.contains('active') || game) return;
+    previewFor = s.src; preview = new Audio(urlOf(s.src)); preview.loop = true; preview.volume = 0;
+    preview.onloadedmetadata = () => { if (preview) preview.currentTime = preview.duration * 0.35; };
+    preview.play().then(() => { const p = preview, target = mixLevel(W.audio) * 0.6; let v = 0; const f = setInterval(() => { if (p !== preview) return clearInterval(f); v = Math.min(target, v + 0.05); p.volume = v; if (v >= target) clearInterval(f); }, 60); }).catch(() => {});
+  }
+  function stopPreview() { if (preview) { preview.pause(); preview.removeAttribute('src'); preview.load(); } preview = null; previewFor = null; }
+  const previewT = setInterval(() => { // only while the song list is showing and this window is in front
+    if (!W.el.classList.contains('active') || game || menuEl.hidden) stopPreview(); else if (song && !preview && menuEl.dataset.view === 'select') startPreview(song);
+  }, 700);
+
+  /* ---- song select ---- */
+  function card(s, i) {
+    const m = meta[s.src] || {}, b = best(s, pickDiff(s)), f = m.fnf;
+    const sub = s.chart ? `FNF chart${f && f.bpm ? ` · ${f.bpm} BPM` : ''}` : 'Auto chart';
+    return `<button class="rk-card${s === song ? ' on' : ''}" data-i="${i}" style="--h:${rkHue(rkTitle(s))}"><span class="rk-card-art">${esc(rkTitle(s).replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '♪')}</span>`
+      + `<span class="rk-card-txt"><b>${esc(rkTitle(s))}</b><small>${sub} · ${rkTime(m.len)}</small></span>${b ? `<span class="rk-badge g${b.grade}">${b.grade}</span>` : ''}</button>`;
+  }
+  function detail() {
+    const s = song; if (!s) return '<div class="rk-empty">No songs yet: add some to the Music folder in config.js.</div>';
+    const m = meta[s.src] || {}, d = pickDiff(s), f = m.fnf, b = best(s, d);
+    const chart = f && f.diffs[d] ? f.diffs[d][opt.side === 'opp' ? 'opp' : 'player'] : null, holds = chart ? chart.filter(n => n.len > 0.05).length : 0;
+    const tags = [s.chart ? 'FNF chart' : 'Made from the song', f && f.bpm ? `${f.bpm} BPM` : '', m.len ? rkTime(m.len) : '', chart ? `${chart.length} notes` : '', holds ? `${holds} holds` : ''].filter(Boolean);
+    const keyName = c => c.replace(/^Key/, '').replace(/^Digit/, '').replace('Space', '␣');
+    return `<div class="rk-cover" style="--h:${rkHue(rkTitle(s))}"><b>${esc(rkTitle(s))}</b></div>`
+      + `<div class="rk-tags">${tags.map(t => `<span>${esc(t)}</span>`).join('')}</div>`
+      + (m.bad ? '<p class="rk-msg">Couldn\'t read this song\'s chart file.</p>' : '')
+      + `<div class="rk-diffs">${diffsOf(s).map(x => `<button class="rk-pill${x === d ? ' on' : ''}" data-d="${esc(x)}" style="--c:${RK_DIFF_COLOR[x] || '#9aa6c8'}">${esc(x)}</button>`).join('')}</div>`
+      + (s.chart ? `<div class="rk-row"><span>Play as</span><div class="rk-seg"><button data-side="player" class="${opt.side !== 'opp' ? 'on' : ''}">Boyfriend</button><button data-side="opp" class="${opt.side === 'opp' ? 'on' : ''}">Opponent</button></div></div>` : '')
+      + `<div class="rk-best">${b ? `<span class="rk-bgrade g${b.grade}">${b.grade}</span><div><small>Personal best</small><b>${b.score.toLocaleString()}</b><span>${b.acc}%${b.combo ? ` · ${b.combo}x combo` : ''}</span></div>` : '<div><small>Personal best</small><b>Not played yet</b></div>'}</div>`
+      + `<details class="rk-set"${store.get('rk-set-open', false) ? ' open' : ''}><summary>Settings</summary>`
+      + `<label class="rk-row"><span>Scroll speed</span><input type="range" class="rk-speed" min="400" max="2200" step="50" value="${opt.speed}"><b class="rk-speed-v">${(opt.speed / 100).toFixed(1)}</b></label>`
+      + `<label class="rk-row"><span>Timing offset</span><input type="number" class="rk-off" value="${opt.offset}" step="5"> ms</label>`
+      + `<div class="rk-row"><span>Notes</span><div class="rk-seg"><button data-style="arrows" class="${opt.style === 'arrows' ? 'on' : ''}">Arrows</button><button data-style="bars" class="${opt.style === 'bars' ? 'on' : ''}">Bars</button></div></div>`
+      + `<div class="rk-row"><span>Keys</span><div class="rk-keyset">${opt.keys.map((k, i) => `<button data-k="${i}" class="${binding === i ? 'on' : ''}">${binding === i ? '…' : esc(keyName(k))}</button>`).join('')}</div></div></details>`
+      + `<div class="rk-go"><button class="rk-start">▶ Play</button>${live() ? '<button class="rk-together">Play together</button>' : ''}</div><p class="rk-msg"></p>`;
+  }
+  function menu(msg = '') {
+    stop(); game = null;
+    q('.rk-play').hidden = true; menuEl.hidden = false; menuEl.dataset.view = 'select';
+    songs.forEach(learn);
+    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><span class="rk-hint">↑ ↓ song · ← → difficulty · Enter play</span></div>`
+      + `<div class="rk-cols"><div class="rk-list">${songs.map(card).join('')}</div><div class="rk-detail"></div></div>`;
+    menuEl.querySelectorAll('.rk-card').forEach(b => b.onclick = () => select(songs[+b.dataset.i]));
+    renderDetail(); if (msg) say(msg);
+    const on = menuEl.querySelector('.rk-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  }
+  const say = msg => { const m = menuEl.querySelector('.rk-msg'); if (m) m.textContent = msg; };
+  function refresh() { // metadata arrived: update the cards and details without rebuilding the list
+    if (menuEl.hidden || menuEl.dataset.view !== 'select') return;
+    menuEl.querySelectorAll('.rk-card').forEach(b => { const n = el(card(songs[+b.dataset.i], +b.dataset.i)); n.onclick = b.onclick; b.replaceWith(n); });
+    renderDetail();
+  }
+  function select(s) {
+    if (!s || s === song) return;
+    song = s; store.set('rk-song', s.src); stopPreview();
+    menuEl.querySelectorAll('.rk-card').forEach(b => b.classList.toggle('on', songs[+b.dataset.i] === s));
+    const on = menuEl.querySelector('.rk-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+    renderDetail();
+  }
+  function renderDetail() {
+    const box = menuEl.querySelector('.rk-detail'); if (!box) return;
+    const msg = (box.querySelector('.rk-msg') || {}).textContent || '';
+    box.innerHTML = detail(); const m = box.querySelector('.rk-msg'); if (m && msg) m.textContent = msg;
+    box.querySelectorAll('.rk-pill').forEach(b => b.onclick = () => { diff = b.dataset.d; store.set('rk-diff', diff); refresh(); });
+    box.querySelectorAll('[data-side]').forEach(b => b.onclick = () => { opt.side = b.dataset.side; saveOpt(); refresh(); });
+    box.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { opt.style = b.dataset.style; saveOpt(); renderDetail(); });
+    box.querySelectorAll('.rk-keyset button').forEach(b => b.onclick = () => { binding = +b.dataset.k; renderDetail(); });
+    const set = box.querySelector('.rk-set'); if (set) set.ontoggle = () => store.set('rk-set-open', set.open);
+    const sp = box.querySelector('.rk-speed'); if (sp) sp.oninput = () => { opt.speed = +sp.value; saveOpt(); box.querySelector('.rk-speed-v').textContent = (opt.speed / 100).toFixed(1); };
+    const of = box.querySelector('.rk-off'); if (of) of.onchange = () => { opt.offset = +of.value || 0; saveOpt(); };
+    const st = box.querySelector('.rk-start'); if (st) st.onclick = () => play(song, pickDiff(song));
+    const tg = box.querySelector('.rk-together'); if (tg) tg.onclick = () => { const r = { src: song.src, diff: pickDiff(song), id: Date.now() }; W.push({ together: r }); play(song, r.diff, r); };
+  }
+
+  /* ---- playing ---- */
   async function play(s, d, tog = null) {
     if (!s) return;
-    q('.rk-menu').querySelector('.rk-msg').textContent = 'Listening to the song and making the chart…';
+    stopPreview(); say(s.chart ? 'Loading the song and chart…' : 'Listening to the song and making the chart…');
+    menuEl.classList.add('loading');
     try {
       const buf = await rkDecode(s.src);
-      const key = `${s.src}|${d}`; rkCharts[key] ||= rkChart(buf, d, s.src);
+      let notes, opp = [], bpm = 0;
+      if (s.chart) {
+        const f = await rkLoadFnf(s.chart), c = f.diffs[d] || Object.values(f.diffs)[0];
+        if (!c) throw new Error('the chart has no notes');
+        const side = opt.side === 'opp'; notes = side ? c.opp : c.player; opp = side ? c.player : c.opp; bpm = f.bpm;
+        const shift = (+s.chartOffset || 0) / 1000; if (shift) { notes = notes.map(n => ({ ...n, t: n.t + shift })); opp = opp.map(n => ({ ...n, t: n.t + shift })); }
+      } else { const key = `${s.src}|${d}`; notes = rkCharts[key] ||= rkChart(buf, d, s.src); }
       if (rkCtx.state === 'suspended') await rkCtx.resume();
       setMusic(false); if (playerWin) { const a = playerWin.body.querySelector('audio'); if (a) a.pause(); }
       together = tog; others.clear();
-      const src = rkCtx.createBufferSource(); src.buffer = buf; gain = rkCtx.createGain(); W.audio.apply(); src.connect(gain).connect(rkCtx.destination);
+      const src = rkCtx.createBufferSource(); src.buffer = buf; gain = rkCtx.createGain(); analyser = rkCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
+      W.audio.apply(); src.connect(gain); gain.connect(analyser); analyser.connect(rkCtx.destination);
       const lead = 2.2, t0 = rkCtx.currentTime + lead; src.start(t0);
-      game = { s, d, src, t0, notes: rkCharts[key].map(n => ({ ...n, hit: null })), score: 0, combo: 0, maxCombo: 0, counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, flash: [0, 0, 0, 0], held: [0, 0, 0, 0], pops: [], end: buf.duration, done: false };
+      game = { s, d, src, t0, bpm, notes: notes.map(n => ({ ...n, hit: null })), opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0,
+        counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, held: [0, 0, 0, 0], press: [0, 0, 0, 0], fx: [], pop: null, errs: [], end: buf.duration, done: false, bump: 0, spec: new Uint8Array(analyser.frequencyBinCount) };
       src.onended = () => finish();
-      q('.rk-menu').hidden = true; q('.rk-play').hidden = false;
+      menuEl.classList.remove('loading'); menuEl.hidden = true; q('.rk-play').hidden = false;
       cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
-    } catch (e) { menu(`Couldn't play that song (${e.message || e}).`); }
+    } catch (e) { menuEl.classList.remove('loading'); say(`Couldn't play that song (${e.message || e}).`); }
   }
-  const now = () => rkCtx.currentTime - game.t0 - (rkCtx.outputLatency || rkCtx.baseLatency || 0) - offset / 1000; // song time the ear hears
+  const now = () => rkCtx.currentTime - game.t0 - (rkCtx.outputLatency || rkCtx.baseLatency || 0) - opt.offset / 1000; // song time the ear hears
   function judge(lane) {
     if (!game || game.done) return;
-    game.flash[lane] = 1; game.held[lane] = 1;
+    game.held[lane] = 1; game.press[lane] = 1;
     const t = now(), n = game.notes.find(x => x.lane === lane && !x.hit && Math.abs(x.t - t) * 1000 <= RK_MISS);
     if (!n) return;
-    const ms = Math.abs(n.t - t) * 1000, j = RK_JUDGE.find(([, w]) => ms <= w);
+    const err = (t - n.t) * 1000, j = RK_JUDGE.find(([, w]) => Math.abs(err) <= w);
     if (!j) { n.hit = 'Miss'; return miss(); }
     n.hit = j[0]; game.counts[j[0]]++; game.combo++; game.maxCombo = Math.max(game.maxCombo, game.combo);
     game.score += Math.round(j[2] * (1 + Math.min(game.combo, 100) / 100));
-    game.pops.push({ text: j[0], color: j[3], at: performance.now() });
+    game.pop = { text: j[0], color: j[3], at: performance.now(), err: j[0] === 'Perfect' ? 0 : err };
+    game.errs.push({ err, at: performance.now() }); if (game.errs.length > 30) game.errs.shift();
+    game.allErrs = game.allErrs || []; game.allErrs.push(err);
+    if (n.len > 0.05) n.holding = true; // a held note: keep the key down until its tail
+    game.bump = 1;
+    game.fx.push({ lane, at: performance.now(), color: laneColor(lane), big: j[0] === 'Perfect' });
   }
-  function miss() { game.counts.Miss++; game.combo = 0; game.pops.push({ text: 'Miss', color: '#ff5a5a', at: performance.now() }); }
+  function release(lane) {
+    if (!game) return;
+    game.held[lane] = 0;
+    const t = now(), n = game.notes.find(x => x.lane === lane && x.holding);
+    if (n && t < n.t + n.len - 0.12) { n.holding = false; n.broke = true; miss('Dropped'); } // let go too soon
+  }
+  function miss(text = 'Miss') { game.counts.Miss++; game.combo = 0; game.pop = { text, color: '#ff5a5a', at: performance.now() }; }
   const accuracy = () => { const c = game.counts, total = c.Perfect + c.Great + c.Good + c.Miss; return total ? (c.Perfect * 300 + c.Great * 200 + c.Good * 100) / (total * 300) * 100 : 100; };
   const grade = a => a >= 95 ? 'S' : a >= 90 ? 'A' : a >= 80 ? 'B' : a >= 70 ? 'C' : 'D';
+  const laneColor = l => opt.style === 'arrows' ? RK_ARROW[l] : l === 0 || l === 3 ? '#8fa8ff' : '#ff8ad0';
+  function arrow(x, y, s, lane, fill, stroke) { // a chunky arrow; lane 0 left, 1 down, 2 up, 3 right
+    g.save(); g.translate(x, y); g.rotate([-Math.PI / 2, Math.PI, 0, Math.PI / 2][lane]); g.scale(s, s);
+    g.beginPath(); g.moveTo(0, -1); g.lineTo(0.95, -0.02); g.lineTo(0.4, -0.02); g.lineTo(0.4, 0.9); g.lineTo(-0.4, 0.9); g.lineTo(-0.4, -0.02); g.lineTo(-0.95, -0.02); g.closePath();
+    g.lineJoin = 'round'; if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.lineWidth = 0.16; g.strokeStyle = stroke; g.stroke(); }
+    g.restore();
+  }
+  function note(x, y, lane, alpha = 1) {
+    g.globalAlpha = alpha;
+    if (opt.style === 'arrows') { arrow(x, y, 30, lane, laneColor(lane), '#10131c'); g.fillStyle = 'rgba(255,255,255,.35)'; arrow(x, y - 4, 13, lane, 'rgba(255,255,255,.35)'); }
+    else {
+      const c = lane === 0 || lane === 3 ? ['#c9d6ff', '#7f9cff'] : ['#ffd3f0', '#ff7ac8'], gr = g.createLinearGradient(0, y - 11, 0, y + 11);
+      gr.addColorStop(0, c[0]); gr.addColorStop(1, c[1]); g.fillStyle = gr; g.beginPath(); g.roundRect(x - LW / 2 + 6, y - 11, LW - 12, 22, 7); g.fill();
+    }
+    g.globalAlpha = 1;
+  }
   let liveT = 0;
   function frame() {
     if (!game) return;
-    const t = now();
-    game.notes.forEach(n => { if (!n.hit && (t - n.t) * 1000 > RK_MISS) { n.hit = 'Miss'; miss(); } });
-    // draw
-    g.fillStyle = '#0d0f17'; g.fillRect(0, 0, 360, H);
-    for (let l = 0; l < 4; l++) {
-      g.fillStyle = l % 2 ? '#141826' : '#111421'; g.fillRect(l * LW, 0, LW, H);
-      if (game.flash[l] > 0) { const gr = g.createLinearGradient(0, JY, 0, JY - 260); gr.addColorStop(0, `rgba(120,170,255,${0.35 * game.flash[l]})`); gr.addColorStop(1, 'rgba(120,170,255,0)'); g.fillStyle = gr; g.fillRect(l * LW, JY - 260, LW, 260); game.flash[l] = Math.max(0, game.flash[l] - 0.08); }
-    }
-    g.fillStyle = '#e6ecff'; g.fillRect(0, JY - 2, 360, 4);
-    for (let l = 0; l < 4; l++) { // keys at the bottom
-      g.fillStyle = game.held[l] ? '#9db7ff' : '#262b40'; g.fillRect(l * LW + 6, JY + 14, LW - 12, 48);
-      g.fillStyle = game.held[l] ? '#0d0f17' : '#9aa6c8'; g.font = 'bold 20px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(KEYS[l].toUpperCase(), l * LW + LW / 2, JY + 46);
-    }
+    const t = now(), nowMs = performance.now();
     for (const n of game.notes) {
-      if (n.hit) continue;
-      const y = JY - (n.t - t) * speed;
-      if (y < -30) break;
-      if (y > H + 30) continue;
-      const c = n.lane === 0 || n.lane === 3 ? ['#c9d6ff', '#7f9cff'] : ['#ffd3f0', '#ff7ac8'];
-      const gr = g.createLinearGradient(0, y - 10, 0, y + 10); gr.addColorStop(0, c[0]); gr.addColorStop(1, c[1]);
-      g.fillStyle = gr; g.beginPath(); g.roundRect(n.lane * LW + 6, y - 10, LW - 12, 20, 6); g.fill();
+      if (!n.hit && (t - n.t) * 1000 > RK_MISS) { n.hit = 'Miss'; miss(); }
+      if (n.holding) { if (t >= n.t + n.len) { n.holding = false; n.held = true; game.score += 50; } else if (game.held[n.lane]) game.score += 1; }
     }
-    const pop = game.pops[game.pops.length - 1];
-    if (pop && performance.now() - pop.at < 500) { g.globalAlpha = 1 - (performance.now() - pop.at) / 500; g.fillStyle = pop.color; g.font = 'bold 30px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(pop.text, 180, 300); g.globalAlpha = 1; }
-    g.fillStyle = '#fff'; g.font = 'bold 22px Segoe UI, sans-serif'; g.textAlign = 'right'; g.fillText(game.score, 350, 30);
-    g.font = '14px Segoe UI, sans-serif'; g.fillText(accuracy().toFixed(2) + '%', 350, 50);
-    if (game.combo > 1) { g.textAlign = 'center'; g.font = 'bold 40px Segoe UI, sans-serif'; g.fillStyle = 'rgba(255,255,255,.85)'; g.fillText(game.combo, 180, 240); }
-    if (t < 0) { g.textAlign = 'center'; g.font = 'bold 48px Segoe UI, sans-serif'; g.fillStyle = '#fff'; g.fillText(Math.ceil(-t), 180, 320); }
-    g.fillStyle = '#7f9cff'; g.fillRect(0, 0, 360 * Math.max(0, Math.min(1, t / game.end)), 3);
-    if (together && performance.now() - liveT > 500) { liveT = performance.now(); W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc: accuracy(), done: false } }); }
+    // background: the song's spectrum and a pulse on the beat
+    let bass = 0; analyser.getByteFrequencyData(game.spec); for (let k = 1; k < 8; k++) bass += game.spec[k]; bass /= 7 * 255;
+    const beat = game.bpm ? Math.exp(-((Math.max(0, t) * game.bpm / 60) % 1) * 5) : bass;
+    game.bump = Math.max(0, game.bump - 0.08);
+    const hue = rkHue(rkTitle(game.s));
+    const bg = g.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, `hsl(${hue},45%,${8 + beat * 5}%)`); bg.addColorStop(1, '#07080d');
+    g.fillStyle = bg; g.fillRect(0, 0, CW, H);
+    const bins = game.spec.length;
+    for (let k = 0; k < 48; k++) { const v = game.spec[Math.floor(k / 48 * bins * 0.7)] / 255, h = v * v * 260; g.fillStyle = `hsla(${hue + k * 3},80%,60%,${0.1 + v * 0.18})`; g.fillRect(k * CW / 48 + 1, H - h, CW / 48 - 2, h); }
+    // playfield
+    g.fillStyle = 'rgba(6,8,14,.82)'; g.fillRect(PX, 0, LW * 4, H);
+    g.strokeStyle = `hsla(${hue},90%,70%,${0.25 + beat * 0.5})`; g.lineWidth = 2; g.strokeRect(PX - 1, -2, LW * 4 + 2, H + 4);
+    for (let l = 0; l < 4; l++) {
+      if (game.held[l]) { const gr = g.createLinearGradient(0, JY, 0, JY - 300); gr.addColorStop(0, hexA(laneColor(l), 0.28)); gr.addColorStop(1, hexA(laneColor(l), 0)); g.fillStyle = gr; g.fillRect(PX + l * LW, JY - 300, LW, 300); }
+      if (l) { g.fillStyle = 'rgba(255,255,255,.05)'; g.fillRect(PX + l * LW, 0, 1, H); }
+    }
+    // receptors
+    for (let l = 0; l < 4; l++) {
+      const x = PX + l * LW + LW / 2, p = game.press[l]; game.press[l] = Math.max(0, p - 0.12);
+      if (opt.style === 'arrows') arrow(x, JY, 30 * (1 - p * 0.12), l, game.held[l] ? hexA(laneColor(l), 0.55) : 'rgba(140,150,180,.25)', game.held[l] ? '#fff' : 'rgba(200,210,240,.6)');
+      else { g.fillStyle = game.held[l] ? hexA(laneColor(l), 0.6) : 'rgba(140,150,180,.18)'; g.beginPath(); g.roundRect(x - LW / 2 + 6, JY - 11, LW - 12, 22, 7); g.fill(); g.strokeStyle = 'rgba(220,230,255,.6)'; g.lineWidth = 2; g.stroke(); }
+      g.fillStyle = game.held[l] ? '#fff' : 'rgba(170,180,210,.7)'; g.font = 'bold 15px Segoe UI, sans-serif'; g.textAlign = 'center';
+      g.fillText(opt.keys[l].replace(/^Key/, '').replace(/^Digit/, ''), x, JY + 62);
+    }
+    // notes (held notes draw their tail first)
+    for (const n of game.notes) {
+      const x = PX + n.lane * LW + LW / 2, y = JY - (n.t - t) * opt.speed;
+      if (y < -60 - n.len * opt.speed) break;
+      if (n.len > 0.05 && !n.held && !n.broke && !(n.hit === 'Miss' && y > H + 40)) {
+        const ty = JY - (n.t + n.len - t) * opt.speed, top = Math.max(-20, ty), bot = n.holding ? JY : y;
+        if (bot > top) { const w = opt.style === 'arrows' ? 22 : LW - 40; g.fillStyle = hexA(laneColor(n.lane), n.hit === 'Miss' ? 0.25 : n.holding ? 0.85 : 0.6); g.beginPath(); g.roundRect(x - w / 2, top, w, bot - top, w / 2); g.fill(); }
+      }
+      if (n.hit || y > H + 40) continue;
+      note(x, y, n.lane);
+    }
+    // hit bursts
+    game.fx = game.fx.filter(f => nowMs - f.at < 300);
+    for (const f of game.fx) {
+      const k = (nowMs - f.at) / 300, x = PX + f.lane * LW + LW / 2;
+      g.strokeStyle = hexA(f.color, 1 - k); g.lineWidth = 4 * (1 - k) + 1; g.beginPath(); g.arc(x, JY, 26 + k * (f.big ? 34 : 22), 0, Math.PI * 2); g.stroke();
+      if (f.big) for (let s = 0; s < 6; s++) { const a = s / 6 * Math.PI * 2 + f.at, r = 20 + k * 50; g.fillStyle = hexA('#ffffff', 1 - k); g.fillRect(x + Math.cos(a) * r - 2, JY + Math.sin(a) * r - 2, 4, 4); }
+    }
+    // judgement, early/late and combo
+    const pop = game.pop, age = pop ? nowMs - pop.at : 1e9;
+    if (age < 600) {
+      const sc = 1 + Math.max(0, 0.25 - age / 400); g.save(); g.globalAlpha = Math.min(1, 2 - age / 300); g.translate(PX + LW * 2, 300); g.scale(sc, sc);
+      g.font = 'italic 900 34px Segoe UI, sans-serif'; g.textAlign = 'center'; g.lineWidth = 5; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(pop.text.toUpperCase(), 0, 0); g.fillStyle = pop.color; g.fillText(pop.text.toUpperCase(), 0, 0);
+      if (pop.err) { g.font = 'bold 13px Segoe UI, sans-serif'; g.fillStyle = pop.err < 0 ? '#7fc8ff' : '#ffb36b'; g.fillText(pop.err < 0 ? `EARLY ${Math.round(-pop.err)}ms` : `LATE ${Math.round(pop.err)}ms`, 0, 22); }
+      g.restore();
+    }
+    if (game.combo > 1) { const s = 1 + game.bump * 0.15; g.save(); g.translate(PX + LW * 2, 228); g.scale(s, s); g.textAlign = 'center'; g.font = '900 46px Segoe UI, sans-serif'; g.fillStyle = 'rgba(255,255,255,.9)'; g.fillText(game.combo, 0, 0); g.font = 'bold 11px Segoe UI, sans-serif'; g.fillStyle = 'rgba(255,255,255,.55)'; g.fillText('COMBO', 0, 16); g.restore(); }
+    // hit error bar under the keys
+    const ey = H - 14, ew = 180, ex = PX + LW * 2;
+    g.fillStyle = 'rgba(255,90,90,.35)'; g.fillRect(ex - ew / 2, ey - 2, ew, 4);
+    RK_JUDGE.slice().reverse().forEach(([, w, , c]) => { g.fillStyle = hexA(c, 0.5); g.fillRect(ex - ew / 2 * w / RK_MISS, ey - 2, ew * w / RK_MISS, 4); });
+    g.fillStyle = '#fff'; g.fillRect(ex - 1, ey - 7, 2, 14);
+    for (const e of game.errs) { const a = Math.max(0, 1 - (nowMs - e.at) / 3000); if (!a) continue; g.fillStyle = `rgba(255,255,255,${a})`; g.fillRect(ex + e.err / RK_MISS * ew / 2 - 1, ey - 6, 2, 12); }
+    // left side: title and the opponent's notes
+    g.textAlign = 'left'; g.fillStyle = '#fff'; g.font = 'bold 13px Segoe UI, sans-serif'; wrapText(rkTitle(game.s), 10, 24, 100, 16);
+    g.font = '11px Segoe UI, sans-serif'; g.fillStyle = RK_DIFF_COLOR[game.d] || '#9aa6c8'; g.fillText(game.d + (game.s.chart && opt.side === 'opp' ? ' · opponent' : ''), 10, 64);
+    if (game.opp.length) {
+      const ox = 12, ow = 23, oy = 440;
+      g.fillStyle = 'rgba(6,8,14,.6)'; g.fillRect(ox - 4, 80, ow * 4 + 8, H - 120);
+      g.fillStyle = 'rgba(200,210,240,.5)'; g.font = 'bold 9px Segoe UI, sans-serif'; g.fillText(opt.side === 'opp' ? 'BOYFRIEND' : 'OPPONENT', ox, 94);
+      for (let l = 0; l < 4; l++) {
+        const lit = game.opp.some(n => t >= n.t && t <= n.t + Math.max(0.1, n.len) && n.lane === l);
+        g.save(); g.globalAlpha = lit ? 1 : 0.35; if (opt.style === 'arrows') arrow(ox + l * ow + ow / 2, oy, 8, l, lit ? laneColor(l) : 'rgba(160,170,200,.6)'); else { g.fillStyle = lit ? laneColor(l) : 'rgba(160,170,200,.6)'; g.fillRect(ox + l * ow + 2, oy - 4, ow - 4, 8); } g.restore();
+      }
+      const os = opt.speed * 0.4;
+      for (const n of game.opp) {
+        const y = oy - (n.t - t) * os; if (y < 100 - n.len * os) break; if (y > oy + 4 && t > n.t + n.len) continue;
+        const x = ox + n.lane * ow + ow / 2;
+        if (n.len > 0.05) { const ty = Math.max(100, oy - (n.t + n.len - t) * os), by = Math.min(oy, y); if (by > ty) { g.fillStyle = hexA(laneColor(n.lane), 0.5); g.fillRect(x - 3, ty, 6, by - ty); } }
+        if (y <= oy + 2 && y >= 100) { if (opt.style === 'arrows') arrow(x, y, 8, n.lane, laneColor(n.lane)); else { g.fillStyle = laneColor(n.lane); g.fillRect(x - ow / 2 + 2, y - 4, ow - 4, 8); } }
+      }
+    }
+    // right side: score
+    const rx = PX + LW * 4 + 12; g.textAlign = 'left';
+    g.fillStyle = '#fff'; g.font = '900 22px Segoe UI, sans-serif'; g.fillText(String(game.score).padStart(7, '0'), rx, 34);
+    g.font = 'bold 15px Segoe UI, sans-serif'; g.fillStyle = '#cfd8ff'; g.fillText(accuracy().toFixed(2) + '%', rx, 56);
+    const live = grade(accuracy()); g.font = '900 30px Segoe UI, sans-serif'; g.fillStyle = { S: '#ffd23f', A: '#7dff8a', B: '#7df9ff', C: '#c49bff', D: '#ff7a7a' }[live]; g.fillText(live, rx, 96);
+    g.font = '12px Segoe UI, sans-serif';
+    [['Perfect', '#7df9ff'], ['Great', '#7dff8a'], ['Good', '#ffe066'], ['Miss', '#ff5a5a']].forEach(([k, c], i) => { g.fillStyle = c; g.fillText(k, rx, 130 + i * 18); g.fillStyle = '#fff'; g.textAlign = 'right'; g.fillText(game.counts[k], CW - 10, 130 + i * 18); g.textAlign = 'left'; });
+    // progress ring
+    const pr = Math.max(0, Math.min(1, t / game.end)), pcx = rx + 34, pcy = 250;
+    g.strokeStyle = 'rgba(255,255,255,.12)'; g.lineWidth = 6; g.beginPath(); g.arc(pcx, pcy, 26, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = `hsl(${hue},90%,65%)`; g.beginPath(); g.arc(pcx, pcy, 26, -Math.PI / 2, -Math.PI / 2 + pr * Math.PI * 2); g.stroke();
+    g.fillStyle = '#fff'; g.font = 'bold 11px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(rkTime(Math.max(0, game.end - Math.max(0, t))), pcx, pcy + 4);
+    if (t < 0) { const c = Math.ceil(-t); g.textAlign = 'center'; g.font = '900 64px Segoe UI, sans-serif'; g.fillStyle = `rgba(255,255,255,${0.4 + (-t % 1) * 0.6})`; g.fillText(c, PX + LW * 2, 330); g.font = 'bold 13px Segoe UI, sans-serif'; g.fillStyle = '#cfd8ff'; g.fillText('Esc to quit', PX + LW * 2, 360); }
+    if (together && nowMs - liveT > 500) { liveT = nowMs; W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc: accuracy(), done: false } }); }
     renderLive();
     raf = requestAnimationFrame(frame);
   }
+  function wrapText(text, x, y, w, lh) { // short titles on one line, long ones on two
+    const words = text.split(' '); let line = '', n = 0;
+    for (const word of words) { const tryL = line ? line + ' ' + word : word; if (g.measureText(tryL).width > w && line) { g.fillText(line, x, y + n++ * lh); line = word; if (n > 1) break; } else line = tryL; }
+    if (n < 2) g.fillText(line, x, y + n * lh);
+  }
   function renderLive() {
     const box = q('.rk-live');
-    if (!together) { box.innerHTML = ''; return; }
+    if (!together) { if (box.innerHTML) box.innerHTML = ''; return; }
     const rows = [{ name: me.name + ' (you)', color: me.color, score: game ? game.score : 0, acc: game ? accuracy() : 100 }, ...others.values()].sort((a, b) => b.score - a.score);
     box.innerHTML = '<h4>Together</h4>' + rows.map((r, i) => `<div><b>${i + 1}.</b> <span style="color:${esc(r.color)}">${esc(r.name)}</span> ${r.score} · ${r.acc.toFixed(1)}%${r.done ? ' ✓' : ''}</div>`).join('');
   }
@@ -4194,43 +4470,63 @@ function openRhythm() {
     if (!game || game.done) return;
     game.done = true; cancelAnimationFrame(raf);
     game.notes.forEach(n => { if (!n.hit) { n.hit = 'Miss'; game.counts.Miss++; } });
-    const acc = accuracy(), gr = grade(acc), b = best(game.s, game.d);
-    if (!b || game.score > b.score) store.set(`rk-best:${game.s.src}:${game.d}`, { score: game.score, grade: gr, acc: +acc.toFixed(2) });
+    const acc = accuracy(), gr = grade(acc), b = best(game.s, game.d), isBest = !b || game.score > b.score;
+    if (isBest) store.set(bestKey(game.s, game.d), { score: game.score, grade: gr, acc: +acc.toFixed(2), combo: game.maxCombo });
     if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc, done: true } });
-    const c = game.counts;
-    q('.rk-play').hidden = true; q('.rk-menu').hidden = false;
-    q('.rk-menu').innerHTML = `<h2>${esc(game.s.name.replace(/\.[^.]+$/, ''))} · ${game.d}</h2><div class="rk-grade g${gr}">${gr}</div>`
-      + `<div class="rk-res"><div><small>Score</small><b>${game.score}</b></div><div><small>Accuracy</small><b>${acc.toFixed(2)}%</b></div><div><small>Max combo</small><b>${game.maxCombo}</b></div></div>`
-      + `<div class="rk-counts"><span style="color:#2bb3c0">Perfect ${c.Perfect}</span><span style="color:#2e9d3a">Great ${c.Great}</span><span style="color:#b38f00">Good ${c.Good}</span><span style="color:#d33">Miss ${c.Miss}</span></div>`
-      + '<div class="rk-live2"></div><div class="rk-go"><button class="okbtn rk-retry">Retry</button><button class="okbtn rk-back">Song list</button></div>';
-    q('.rk-retry').onclick = () => play(game.s, game.d, null);
-    q('.rk-back').onclick = () => { game = null; menu(); };
+    const c = game.counts, total = Math.max(1, c.Perfect + c.Great + c.Good + c.Miss);
+    // how early or late the hits were, in 10 ms buckets
+    const bucket = new Array(31).fill(0); (game.allErrs || []).forEach(e => { bucket[Math.max(0, Math.min(30, Math.round(e / 10) + 15))]++; });
+    const peak = Math.max(1, ...bucket), errs = game.allErrs || [], mean = errs.length ? errs.reduce((a, v) => a + v, 0) / errs.length : 0;
+    q('.rk-play').hidden = true; menuEl.hidden = false; menuEl.dataset.view = 'result';
+    menuEl.innerHTML = `<div class="rk-result" style="--h:${rkHue(rkTitle(game.s))}"><div class="rk-rhead"><b>${esc(rkTitle(game.s))}</b><span style="color:${RK_DIFF_COLOR[game.d] || '#9aa6c8'}">${esc(game.d)}</span></div>`
+      + `<div class="rk-rmain"><div class="rk-grade g${gr}">${gr}</div><div class="rk-rstats">${isBest ? '<span class="rk-new">NEW BEST!</span>' : ''}<b class="rk-rscore">${game.score.toLocaleString()}</b>`
+      + `<div class="rk-res"><div><small>Accuracy</small><b>${acc.toFixed(2)}%</b></div><div><small>Max combo</small><b>${game.maxCombo}x</b></div><div><small>Timing</small><b>${errs.length ? (mean < 0 ? `${Math.round(-mean)}ms early` : `${Math.round(mean)}ms late`) : '–'}</b></div></div></div></div>`
+      + `<div class="rk-counts">${[['Perfect', '#7df9ff'], ['Great', '#7dff8a'], ['Good', '#ffe066'], ['Miss', '#ff5a5a']].map(([k, col]) => `<div><span style="color:${col}">${k}</span><i><em style="width:${c[k] / total * 100}%;background:${col}"></em></i><b>${c[k]}</b></div>`).join('')}</div>`
+      + `<div class="rk-hist" title="How early (left) or late (right) your hits were">${bucket.map((v, i) => `<i style="height:${v / peak * 100}%;background:${Math.abs(i - 15) <= 4 ? '#7df9ff' : Math.abs(i - 15) <= 8 ? '#7dff8a' : '#ffe066'}"></i>`).join('')}<span>early</span><span>late</span></div>`
+      + `<div class="rk-live2"></div><div class="rk-go"><button class="rk-retry">↻ Retry</button><button class="rk-back">Song list</button></div></div>`;
+    const lv = menuEl.querySelector('.rk-live2'); if (lv && together) lv.innerHTML = q('.rk-live').innerHTML;
+    const s = game.s, d = game.d;
+    menuEl.querySelector('.rk-retry').onclick = () => play(s, d, null);
+    menuEl.querySelector('.rk-back').onclick = () => menu();
     setMusic(true);
   }
   function stop() { if (game && !game.done) { game.done = true; try { game.src.onended = null; game.src.stop(); } catch {} cancelAnimationFrame(raf); setMusic(true); } }
   // input
-  const laneOf = k => KEYS.indexOf(k.toLowerCase());
   const onKey = e => {
-    if (!game || game.done || !W.el.classList.contains('active') || e.repeat) return;
-    if (e.key === 'Escape' && e.type === 'keydown') { stop(); game = null; menu('Stopped.'); return; }
-    const l = laneOf(e.key); if (l < 0) return;
-    e.preventDefault();
-    if (e.type === 'keydown') judge(l); else game.held[l] = 0;
+    if (!W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
+    if (binding >= 0 && e.type === 'keydown') { // choosing a key in Settings
+      e.preventDefault(); if (e.code !== 'Escape') { const i = opt.keys.indexOf(e.code); if (i >= 0) opt.keys[i] = opt.keys[binding]; opt.keys[binding] = e.code; saveOpt(); }
+      binding = -1; renderDetail(); return;
+    }
+    if (game && !game.done) {
+      if (e.key === 'Escape' && e.type === 'keydown') { menu('Stopped.'); return; }
+      const l = opt.keys.indexOf(e.code); if (l < 0 || e.repeat) return;
+      e.preventDefault(); if (e.type === 'keydown') judge(l); else release(l);
+      return;
+    }
+    if (e.type !== 'keydown' || menuEl.hidden) return;
+    if (menuEl.dataset.view === 'result') { if (e.key === 'Enter') { e.preventDefault(); menuEl.querySelector('.rk-retry').click(); } else if (e.key === 'Escape') menu(); return; }
+    const i = songs.indexOf(song), ds = diffsOf(song), di = ds.indexOf(pickDiff(song));
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); select(songs[(i + (e.key === 'ArrowDown' ? 1 : -1) + songs.length) % songs.length]); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); diff = ds[(di + (e.key === 'ArrowRight' ? 1 : -1) + ds.length) % ds.length]; store.set('rk-diff', diff); refresh(); }
+    else if (e.key === 'Enter' && !e.target.closest?.('button')) { e.preventDefault(); play(song, pickDiff(song)); }
   };
   document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKey);
-  cv.addEventListener('pointerdown', e => { const r = lrect(cv), l = Math.floor((cX(e) - r.left) / r.width * 4); if (l >= 0 && l < 4) { judge(l); cv.setPointerCapture(e.pointerId); cv.dataset.l = l; } });
-  ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { if (game && cv.dataset.l) game.held[+cv.dataset.l] = 0; }));
+  const laneAt = e => { const r = lrect(cv), x = (cX(e) - r.left) / r.width * CW; return Math.floor((x - PX) / LW); };
+  cv.addEventListener('pointerdown', e => { const l = laneAt(e); if (l >= 0 && l < 4) { judge(l); cv.setPointerCapture(e.pointerId); cv.dataset.l = l; } });
+  ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { if (game && cv.dataset.l) { release(+cv.dataset.l); delete cv.dataset.l; } }));
   cv.style.touchAction = 'none';
   // multiplayer: someone pressed "Play together"; live scores while playing it
   shareState(W, () => ({}), d => {
     if (d.together) { const s = songs.find(x => x.src === d.together.src); if (s) { stop(); diff = d.together.diff; song = s; play(s, d.together.diff, d.together); } }
     else if (d.live && together && d.live.tog === together.id) { others.set(d.live.id, d.live); renderLive(); const lv = q('.rk-live2'); if (lv) lv.innerHTML = q('.rk-live').innerHTML; }
   });
-  W.onClose = () => { stop(); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); rkWin = null; };
+  W.onClose = () => { stop(); stopPreview(); clearInterval(previewT); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); rkWin = null; };
   rkWin = W;
   menu();
   return W;
 }
+const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${Math.max(0, Math.min(1, a))})`; };
 
 /* ---------- settings ---------- */
 const RESOLUTIONS = [['Widescreen 16:9', [[1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]],

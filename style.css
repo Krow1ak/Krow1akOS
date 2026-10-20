@@ -757,3 +757,14 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .wb-sp-bar.warn{color:#ffe08a;background:#3a3010}
 .mp-report{align-self:flex-start;margin-top:4px;padding:0;border:0;background:none;color:#1a5fb4;font:inherit;font-size:11px;text-decoration:underline;cursor:pointer}
 .mp-reptext{width:100%;height:140px;margin-top:4px;font:10px/1.35 Consolas,monospace;resize:vertical}
+.tt{position:relative}
+.tt-cfg{position:absolute;inset:0;z-index:5;display:grid;place-items:center;background:rgba(8,10,18,.72)}
+.tt-cfg[hidden]{display:none}
+.tt-cfg-box{width:min(380px,92%);max-height:94%;overflow:auto;padding:14px 16px;background:#20253a;border:1px solid #3a4160;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.tt-cfg-box h3{margin:0 0 4px;font-size:16px;color:#fff}
+.tt-cfg-tip{margin:0 0 10px;font-size:11px;color:#8f9bc7}
+.tt-cfg-row{display:grid;grid-template-columns:1fr 92px 92px;gap:6px;align-items:center;margin-bottom:5px;font-size:12px}
+.tt-cfg-row input[type=range]{grid-column:2/3;width:100%}.tt-cfg-row b{font-size:11px;font-weight:600;color:#cfd8ff}
+.tt-key{height:26px;padding:0 4px;border:1px solid #46507a;border-radius:4px;background:#2c3350;color:#fff;font:600 12px var(--font-ui);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tt-key:hover{border-color:#7f8fd0}.tt-key.on{background:#ffd75e;color:#222;border-color:#ffd75e}
+.tt-cfg-btns{display:flex;justify-content:space-between;gap:8px;margin-top:10px}

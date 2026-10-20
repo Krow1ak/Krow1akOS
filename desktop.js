@@ -3399,11 +3399,11 @@ function openTetris() {
   const COLS = 10, ROWS = 20, HID = 2, CELL = 26;
   const W = makeWin({ title: 'Tetris', icon: I.tetris, w: 640, h: 640 });
   W.body.innerHTML = '<div class="tt"><div class="tt-side"><h4>Hold</h4><canvas class="tt-hold" width="104" height="70"></canvas><div class="tt-stats"></div>'
-    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button></div></div>'
+    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button><button class="okbtn tt-set">Settings</button></div></div>'
     + '<div class="tt-mid"><canvas class="tt-c" width="260" height="520" aria-label="Tetris board"></canvas><div class="tt-note"></div></div>'
     + '<div class="tt-side"><h4>Next</h4><canvas class="tt-next" width="104" height="260"></canvas><div class="tt-opps"></div></div>'
     + '<div class="tt-touch"><button data-k="left">◀</button><button data-k="rot">⟳</button><button data-k="right">▶</button><button data-k="soft">▼</button><button data-k="drop">⤓</button><button data-k="hold">Hold</button></div>'
-    + '<div class="tt-help">← → move · ↓ soft drop · Space hard drop · ↑/X rotate · Z rotate back · C hold · P pause</div></div>';
+    + '<div class="tt-help"></div><div class="tt-cfg" hidden></div></div>';
   const q = sel => W.body.querySelector(sel), cv = q('.tt-c'), g = cv.getContext('2d');
   let grid, cur, bag, rnd, queue, hold, canHold, score, lines, level, over, paused, dropT, lockT, lockMoves, versus = null, junk = 0, countdown = 0, raf = 0, last = 0, best = store.get('tetris-best', 0);
   let combo = -1, b2b = false, lastRot = false;
@@ -3668,24 +3668,84 @@ function openTetris() {
       dropT += dt;
       while (dropT >= speed) { dropT -= speed; if (move(0, 1)) { if (keys.soft) score++; } else break; }
       if (!fits(cur.x, cur.y + 1, cur.r)) { lockT += dt; if (lockT >= 500) lock(); } else lockT = 0;
-      for (const dir of ['left', 'right']) if (keys[dir]) { keys[dir].t += dt; while (keys[dir].t >= keys[dir].next) { move(dir === 'left' ? -1 : 1, 0); keys[dir].t -= keys[dir].next; keys[dir].next = 40; } }
+      for (const dir of ['left', 'right']) if (keys[dir]) { keys[dir].t += dt; while (keys[dir].t >= keys[dir].next) { move(dir === 'left' ? -1 : 1, 0); keys[dir].t -= keys[dir].next; keys[dir].next = Math.max(1, cfg.arr); } }
       share();
     }
     draw();
     raf = requestAnimationFrame(frame);
   }
+  const TT_ACTIONS = [['left', 'Move left'], ['right', 'Move right'], ['soft', 'Soft drop'], ['drop', 'Hard drop'], ['rot', 'Rotate right'], ['rotb', 'Rotate left'], ['hold', 'Hold'], ['pause', 'Pause']];
+  const TT_DEFAULT = { keys: { left: ['ArrowLeft'], right: ['ArrowRight'], soft: ['ArrowDown'], drop: ['Space'], rot: ['ArrowUp', 'KeyX'], rotb: ['KeyZ', 'ControlLeft'], hold: ['KeyC', 'ShiftLeft'], pause: ['KeyP', 'Escape'] }, das: 160, arr: 40 };
+  const saved = store.get('tetris-settings', {});
+  const cfg = { keys: { ...TT_DEFAULT.keys, ...(saved.keys || {}) }, das: saved.das ?? TT_DEFAULT.das, arr: saved.arr ?? TT_DEFAULT.arr };
+  const keyAction = code => TT_ACTIONS.find(([a]) => (cfg.keys[a] || []).includes(code))?.[0];
+  const keyName = code => ({ ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', Space: 'Space', Escape: 'Esc', ControlLeft: 'Ctrl', ControlRight: 'Right Ctrl', ShiftLeft: 'Shift', ShiftRight: 'Right Shift', AltLeft: 'Alt', AltRight: 'Right Alt', Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab' })[code]
+    || code.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
+  const help = () => {
+    const k = a => (cfg.keys[a] || []).map(keyName).join('/') || '—';
+    q('.tt-help').textContent = `${k('left')} ${k('right')} move · ${k('soft')} soft drop · ${k('drop')} hard drop · ${k('rot')} rotate · ${k('rotb')} rotate back · ${k('hold')} hold · ${k('pause')} pause`;
+  };
+  const saveCfg = () => { store.set('tetris-settings', cfg); help(); };
+  let binding = null, cfgPaused = false; // binding: [action, slot] waiting for a key press
+  function openCfg() {
+    const box = q('.tt-cfg');
+    cfgPaused = !versus && !over && !paused; if (cfgPaused) paused = true;
+    box.hidden = false; binding = null;
+    const rows = TT_ACTIONS.map(([a, label]) => `<div class="tt-cfg-row"><span>${label}</span>${[0, 1].map(i => `<button class="tt-key" data-a="${a}" data-i="${i}"></button>`).join('')}</div>`).join('');
+    box.innerHTML = `<div class="tt-cfg-box"><h3>Controls</h3><p class="tt-cfg-tip">Click a box, then press the key you want. Delete or Backspace clears it, Esc cancels.</p>${rows}`
+      + `<label class="tt-cfg-row"><span title="How long to hold left/right before the piece starts sliding">Slide delay</span><input type="range" class="tt-das" min="50" max="300" step="5"><b class="tt-das-v"></b></label>`
+      + `<label class="tt-cfg-row"><span title="How fast the piece slides once it starts">Slide speed</span><input type="range" class="tt-arr" min="0" max="100" step="5"><b class="tt-arr-v"></b></label>`
+      + `<div class="tt-cfg-btns"><button class="okbtn tt-cfg-reset">Reset to default</button><button class="okbtn tt-cfg-done">Done</button></div></div>`;
+    const paint = () => {
+      box.querySelectorAll('.tt-key').forEach(b => {
+        const code = (cfg.keys[b.dataset.a] || [])[+b.dataset.i];
+        const on = binding && binding[0] === b.dataset.a && binding[1] === +b.dataset.i;
+        b.textContent = on ? 'Press a key…' : code ? keyName(code) : '—'; b.classList.toggle('on', !!on);
+      });
+      box.querySelector('.tt-das').value = cfg.das; box.querySelector('.tt-das-v').textContent = cfg.das + ' ms';
+      box.querySelector('.tt-arr').value = cfg.arr; box.querySelector('.tt-arr-v').textContent = cfg.arr ? cfg.arr + ' ms' : 'instant';
+    };
+    box.querySelectorAll('.tt-key').forEach(b => b.onclick = () => { binding = [b.dataset.a, +b.dataset.i]; paint(); });
+    box.querySelector('.tt-das').oninput = e => { cfg.das = +e.target.value; saveCfg(); paint(); };
+    box.querySelector('.tt-arr').oninput = e => { cfg.arr = +e.target.value; saveCfg(); paint(); };
+    box.querySelector('.tt-cfg-reset').onclick = () => { cfg.keys = structuredClone(TT_DEFAULT.keys); cfg.das = TT_DEFAULT.das; cfg.arr = TT_DEFAULT.arr; binding = null; saveCfg(); paint(); };
+    box.querySelector('.tt-cfg-done').onclick = closeCfg;
+    box.paint = paint; paint();
+  }
+  function closeCfg() { q('.tt-cfg').hidden = true; binding = null; keys.left = keys.right = null; keys.soft = false; if (cfgPaused) paused = false; cfgPaused = false; }
+  const onBind = e => {
+    const box = q('.tt-cfg'); if (box.hidden || !W.el.classList.contains('active')) return;
+    if (!binding) { if (e.code === 'Escape') { e.preventDefault(); e.stopPropagation(); closeCfg(); } return; }
+    e.preventDefault(); e.stopPropagation();
+    const [a, i] = binding;
+    if (e.code !== 'Escape') {
+      const mine = [...(cfg.keys[a] || [])];
+      if (e.code === 'Backspace' || e.code === 'Delete') mine.splice(i, 1);
+      else {
+        TT_ACTIONS.forEach(([b]) => { if (b !== a) cfg.keys[b] = (cfg.keys[b] || []).filter(c => c !== e.code); }); // one key does one thing
+        const at = mine.indexOf(e.code); if (at >= 0) mine.splice(at, 1);
+        mine.splice(Math.min(i, mine.length), i < mine.length ? 1 : 0, e.code);
+      }
+      cfg.keys[a] = mine.slice(0, 2); saveCfg();
+    }
+    binding = null; box.paint();
+  };
+  document.addEventListener('keydown', onBind, true);
+  q('.tt-set').onclick = openCfg;
+  help();
   const keys = { left: null, right: null, soft: false };
   const press = k => {
-    if (k === 'left' || k === 'right') { if (move(k === 'left' ? -1 : 1, 0)) SFX.move(); keys[k] = { t: 0, next: 160 }; }
+    if (k === 'left' || k === 'right') { if (move(k === 'left' ? -1 : 1, 0)) SFX.move(); keys[k] = { t: 0, next: cfg.das }; }
     else if (k === 'soft') keys.soft = true;
     else if (k === 'rot') rotate(1); else if (k === 'rotb') rotate(-1);
     else if (k === 'drop') hardDrop(); else if (k === 'hold') doHold();
     else if (k === 'pause' && !versus && !over) paused = !paused;
   };
   const release = k => { if (k === 'left' || k === 'right') keys[k] = null; else if (k === 'soft') keys.soft = false; };
-  const KEYS = { ArrowLeft: 'left', ArrowRight: 'right', ArrowDown: 'soft', ArrowUp: 'rot', x: 'rot', X: 'rot', z: 'rotb', Z: 'rotb', Control: 'rotb', ' ': 'drop', c: 'hold', C: 'hold', Shift: 'hold', p: 'pause', P: 'pause', Escape: 'pause' };
+  // keys can be changed in Settings; they're stored by physical key, so they work on any keyboard layout
   const onKey = e => {
-    const k = KEYS[e.key]; if (!k || !W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
+    if (binding || !q('.tt-cfg').hidden) return;
+    const k = keyAction(e.code); if (!k || !W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
     e.preventDefault();
     if (e.type === 'keydown') { if (!e.repeat) press(k); } else release(k);
   };
@@ -3694,7 +3754,7 @@ function openTetris() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); press(b.dataset.k); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => release(b.dataset.k)));
   });
-  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } if (actx) actx.close().catch(() => {}); ttWin = null; };
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onBind, true); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } if (actx) actx.close().catch(() => {}); ttWin = null; };
   ttWin = W;
   start(); raf = requestAnimationFrame(frame);
   return W;

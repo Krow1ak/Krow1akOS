@@ -151,7 +151,13 @@ const MULTIPLAYER = {
   enabled: true,
   relays: ['relay.damus.io', 'nos.lol', 'relay.primal.net', 'nostr.mom', 'relay.snort.social', 'offchain.pub', 'relay.nostr.net', 'nostr.oxtr.dev'],
   moreRelays: true,   // also use the ~28 public relays built into the library, so a few dead ones don't matter
-  turn: null,
+  turn: [ // free Metered account; anyone can read this, so if it's abused make a new credential there
+    { urls: 'stun:stun.relay.metered.ca:80' },
+    { urls: 'turn:global.relay.metered.ca:80', username: '478c184dab073faae435780f', credential: 'dIxnaqRb7E9yrz26' },
+    { urls: 'turn:global.relay.metered.ca:80?transport=tcp', username: '478c184dab073faae435780f', credential: 'dIxnaqRb7E9yrz26' },
+    { urls: 'turn:global.relay.metered.ca:443', username: '478c184dab073faae435780f', credential: 'dIxnaqRb7E9yrz26' },
+    { urls: 'turns:global.relay.metered.ca:443?transport=tcp', username: '478c184dab073faae435780f', credential: 'dIxnaqRb7E9yrz26' },
+  ],
 };
 
 /* Special dates for the calendar (click the clock) */

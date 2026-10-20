@@ -4544,19 +4544,44 @@ function pickRoomClock() { // the clock of whoever has been in the room longest
 }
 
 // can this browser make direct connections at all? 'ok', 'udp' (only works on the same wifi) or 'off' (WebRTC blocked)
-let rtcCheck = null, rtcResult = '';
+let rtcCheck = null, rtcResult = '', rtcSeen = null;
 function checkRtc() {
   return rtcCheck ||= new Promise(done => {
     if (typeof RTCPeerConnection !== 'function') return done('off');
-    let pc, seen = { host: 0, srflx: 0, relay: 0 }, end = () => { clearTimeout(t); try { pc.close(); } catch {} done(seen.srflx || seen.relay ? 'ok' : seen.host ? 'udp' : 'off'); };
+    let pc, seen = rtcSeen = { host: 0, srflx: 0, relay: 0, prflx: 0, protos: [] }, end = () => { clearTimeout(t); try { pc.close(); } catch {} done(seen.srflx || seen.relay ? 'ok' : seen.host ? 'udp' : 'off'); };
     const t = setTimeout(end, 6000);
     try {
       pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }, ...(MULTIPLAYER.turn || [])] });
       pc.createDataChannel('x');
-      pc.onicecandidate = e => { if (!e.candidate) return end(); const m = / typ (\w+)/.exec(e.candidate.candidate); if (m && m[1] in seen) seen[m[1]]++; };
+      pc.onicecandidate = e => { if (!e.candidate) return end(); const c = e.candidate.candidate, m = / typ (\w+)/.exec(c), pr = / (udp|tcp) /i.exec(c); if (m && m[1] in seen) seen[m[1]]++; if (pr && !seen.protos.includes(pr[1].toLowerCase())) seen.protos.push(pr[1].toLowerCase()); };
       pc.createOffer().then(o => pc.setLocalDescription(o)).catch(end);
     } catch { end(); }
   }).then(r => rtcResult = r);
+}
+
+// everything useful for working out why someone can't connect, as text they can copy and send
+function connectionReport() {
+  const ver = (document.querySelector('script[src*="desktop.js"]') || {}).src?.match(/v=(\w+)/)?.[1] || '?';
+  const socks = mpLib && mpLib.getRelaySockets ? mpLib.getRelaySockets() : {};
+  const state = ['connecting', 'open', 'closing', 'closed'];
+  const relays = Object.entries(socks).map(([u, ws]) => `  ${ws ? state[ws.readyState] : 'none'}  ${u.replace('wss://', '')}`);
+  const ua = navigator.userAgent, br = /Edg\//.test(ua) ? 'Edge' : /OPR\/|Opera/.test(ua) ? 'Opera' : /Brave/.test(ua) || navigator.brave ? 'Brave' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'other';
+  const inApp = /Discord|Instagram|FBAN|FBAV|TikTok|Snapchat|Line\//i.test(ua) ? ' (inside an app\'s built-in browser)' : '';
+  const s = rtcSeen || {};
+  return [
+    `KrowOS connection report · ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+    `Site version: ${ver} · page: ${location.origin + location.pathname}`,
+    `Room: ${roomCode || '(not in a room)'} · in room for ${room ? Math.round((Date.now() - since) / 1000) + 's' : '-'}`,
+    `People connected: ${mp.peers.size}${mp.peers.size ? ' (' + [...mp.peers.values()].map(p => p.name).join(', ') + ')' : ''}`,
+    `Browser: ${br}${inApp} · ${navigator.platform || ''} · online: ${navigator.onLine}`,
+    `Direct connections: ${{ ok: 'OK', udp: 'only on the same network (blocked to the outside)', off: 'blocked by the browser', '': 'still checking' }[rtcResult]}`
+      + ` · found ${s.host || 0} local, ${s.srflx || 0} public, ${s.relay || 0} TURN addresses${s.protos && s.protos.length ? ' over ' + s.protos.join('/') : ''}`,
+    `TURN server set up: ${MULTIPLAYER.turn ? 'yes' : 'no'}`,
+    `Error from the connection library: ${mpError || 'none'}`,
+    `Helper servers: ${Object.values(socks).filter(ws => ws && ws.readyState === 1).length} of ${Object.keys(socks).length} open`,
+    ...relays,
+    `User agent: ${ua}`,
+  ].join('\n');
 }
 
 async function joinRoom(code) {
@@ -4711,7 +4736,8 @@ function openMpPanel() {
     top.innerHTML = `<label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
       + (room
         ? `<div class="mp-box"><div>Room <b class="mp-code">${esc(roomCode)}</b></div><div class="mp-link"><input class="mp-url" readonly><button class="okbtn mp-copy">Copy link</button></div>`
-          + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div><div class="mp-status"></div></div>`
+          + `<div class="dim">${mp.peers.size ? 'Everyone here sees the same desktop.' : 'Waiting for someone to join… Send them the link.'}</div><div class="mp-status"></div>`
+          + `<button type="button" class="linkbtn mp-report">Can't connect? Copy a connection report</button></div>`
           + `<div class="mp-here"><h4>Here now</h4><button class="okbtn mp-leave">Leave room</button></div><ul class="mp-people">${people}</ul>`
         : `<div class="mp-box"><button class="okbtn mp-new">Start a room</button><div class="dim">You get a link to send. Whoever opens it sees your desktop, mouse and windows live.</div></div>`
           + `<form class="mp-box mp-join"><span>Have a code?</span><div class="mp-link"><input class="mp-in" placeholder="Room code or link" aria-label="Room code" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><button class="okbtn">Join</button></div></form>`)
@@ -4725,6 +4751,13 @@ function openMpPanel() {
       q('.mp-url').value = inviteLink();
       q('.mp-copy').onclick = () => { navigator.clipboard.writeText(inviteLink()).then(() => toast('Link copied'), () => q('.mp-url').select()); };
       q('.mp-leave').onclick = () => leaveRoom();
+      q('.mp-report').onclick = () => {
+        const text = connectionReport();
+        const done = () => toast('Connection report copied. Paste it to whoever is helping you.');
+        navigator.clipboard.writeText(text).then(done, () => { // no clipboard access: show it to copy by hand
+          const box = el('<textarea class="mp-reptext" readonly></textarea>'); box.value = text; q('.mp-report').replaceWith(box); box.select();
+        });
+      };
     } else {
       q('.mp-new').onclick = () => { // a second room in the same page goes through a fresh load, like the link
         if (mpLib) { location.hash = 'room=' + newCode(); location.reload(); } else joinRoom(newCode());

@@ -833,3 +833,12 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .tkp-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tkp-x{width:20px;height:20px;padding:0;border:0;border-radius:3px;background:transparent;color:#fff;font:700 15px/1 var(--font-ui);cursor:pointer;opacity:.7}
 .tkp-x:hover{background:#c8302f;opacity:1}
+/* tetris: watching someone else */
+.tt-mid{grid-template-rows:minmax(0,1fr) auto;gap:6px}
+.tt-note{min-height:18px;max-width:260px;font-size:12px;color:#cfd8ff;text-align:center;display:flex;flex-wrap:wrap;gap:4px;justify-content:center}
+.tt-watchbtn{padding:3px 10px;border:1px solid #46507a;border-radius:12px;background:#2c3350;color:#fff;font:600 11px var(--font-ui);cursor:pointer}
+.tt-watchbtn:hover{border-color:#7f8fd0}
+.tt-share.on{background:linear-gradient(#d8f5d0,#a8e39a);border-color:#5aa64a}
+.rk-watch{display:flex;gap:6px;margin-left:auto}
+.rk-watch button{padding:4px 10px;border:1px solid rgba(127,156,255,.5);border-radius:12px;background:rgba(127,156,255,.15);color:#fff;font:600 11px var(--font-ui);cursor:pointer}
+.rk-watch button:hover{background:rgba(127,156,255,.3)}

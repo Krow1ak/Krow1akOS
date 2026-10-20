@@ -3550,7 +3550,7 @@ function openTetris() {
   const COLS = 10, ROWS = 20, HID = 2, CELL = 26;
   const W = makeWin({ title: 'Tetris', icon: I.tetris, w: 640, h: 640 });
   W.body.innerHTML = '<div class="tt"><div class="tt-side"><h4>Hold</h4><canvas class="tt-hold" width="104" height="70"></canvas><div class="tt-stats"></div>'
-    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button><button class="okbtn tt-set">Settings</button></div></div>'
+    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button><button class="okbtn tt-share" hidden></button><button class="okbtn tt-set">Settings</button></div></div>'
     + '<div class="tt-mid"><canvas class="tt-c" width="260" height="520" aria-label="Tetris board"></canvas><div class="tt-note"></div></div>'
     + '<div class="tt-side"><h4>Next</h4><canvas class="tt-next" width="104" height="260"></canvas><div class="tt-opps"></div></div>'
     + '<div class="tt-touch"><button data-k="left">◀</button><button data-k="rot">⟳</button><button data-k="right">▶</button><button data-k="soft">▼</button><button data-k="drop">⤓</button><button data-k="hold">Hold</button></div>'
@@ -3559,8 +3559,17 @@ function openTetris() {
   let grid, cur, bag, rnd, queue, hold, canHold, score, lines, level, over, paused, dropT, lockT, lockMoves, versus = null, junk = 0, countdown = 0, raf = 0, last = 0, best = store.get('tetris-best', 0);
   let combo = -1, b2b = false, lastRot = false;
   // effects: particles, flashes, pop-up words and shake; they only change how things look
-  const fx = { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, glowColor: '#fff', hit: 0, deadAt: 0 };
-  const pop = (text, color = '#fff', size = 22) => { fx.texts.push({ text, color, size, t: 0 }); if (fx.texts.length > 4) fx.texts.shift(); };
+  const newFx = () => ({ parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, glowColor: '#fff', hit: 0, deadAt: 0 });
+  let fx = newFx();
+  // watching: in a room, people who aren't playing see someone else's game live (sent ~10 times a second);
+  // the player can let the watchers press keys too
+  const remoteOpen = !!mp.incoming && live();
+  let idle = remoteOpen, viewing = null, allowCtrl = false, vfx = newFx(), soloT = 0, outbox = [];
+  const views = new Map(); // id -> { v: their latest board, at }
+  const pop = (text, color = '#fff', size = 22) => {
+    fx.texts.push({ text, color, size, t: 0 }); if (fx.texts.length > 4) fx.texts.shift();
+    if (fx !== vfx && !versus && live()) outbox.push(['p', text, color, size]);
+  };
   const burst = (x, y, color, n = 6, power = 1) => { for (let k = 0; k < n; k++) fx.parts.push({ x, y, vx: (Math.random() - 0.5) * 260 * power, vy: (-Math.random() * 220 - 40) * power, life: 0.5 + Math.random() * 0.5, t: 0, color, size: 2 + Math.random() * 3 }); };
   const tone = makeSynth(W, 'tetris', 'Tetris');
   const SFX = {
@@ -3591,6 +3600,7 @@ function openTetris() {
   function start(seed) {
     grid = empty(); rnd = seed != null ? seededRandom('tetris|' + seed) : Math.random; queue = []; hold = null; score = 0; lines = 0; level = 1; over = false; paused = false; dropT = 0; junk = 0;
     combo = -1; b2b = false; Object.assign(fx, { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, hit: 0, deadAt: 0 }); won = false;
+    idle = false; viewing = null;
     spawn(nextPiece()); draw();
   }
   const fits = (x, y, r, t = cur.t) => ttCells(t, r).every(([cx, cy]) => { const X = x + cx, Y = y + cy; return X >= 0 && X < COLS && Y < ROWS + HID && (Y < 0 || !grid[Y][X]); });
@@ -3628,6 +3638,7 @@ function openTetris() {
     for (let y = 0; y < ROWS + HID; y++) if (grid[y].every(Boolean)) full.push(y);
     full.forEach(y => { // light the rows up and throw their blocks around before they go
       fx.flashes.push({ y: y - HID, t: 0 });
+      if (!versus && live()) outbox.push(['r', y - HID, grid[y].join(''), full.length]);
       grid[y].forEach((c, x) => burst((x + 0.5) * CELL, (y - HID + 0.5) * CELL, TT_COLORS[c], full.length >= 4 ? 4 : 2, full.length >= 4 ? 1.4 : 1));
     });
     if (!full.length) { cells.forEach(([cx, cy]) => fx.flashes.push({ x: cur.x + cx, y: cur.y + cy - HID, t: 0, cell: true })); if (!dropped) SFX.lock(); }
@@ -3689,6 +3700,33 @@ function openTetris() {
     const now = performance.now(); if (!force && now - shareT < 250 && !over) return; shareT = now;
     W.push({ vs: { id: mp.self, name: me.name, color: me.color, g: grid.slice(HID).map(r => r.map(c => c || '.').join('')).join(''), score, lines, over, round: versus.round } });
   }
+  const snap = () => ({ id: mp.self, name: me.name, color: me.color, g: grid.map(r => r.map(c => c || '.').join('')).join(''), c: cur && !over ? [cur.t, cur.r, cur.x, cur.y] : null,
+    h: hold || '', q: queue.slice(0, 3).join(''), score, lines, level, over, paused: paused || (!W.el.classList.contains('active') && !allowCtrl), ctrl: allowCtrl,
+    fx: [Math.round(fx.shake * 10) / 10, Math.round(fx.glow * 100) / 100, fx.glowColor, Math.round(fx.hit * 100) / 100], ev: outbox.splice(0) });
+  function shareSolo(now) { // while playing alone in a room, send the board for anyone watching
+    if (versus || idle || !live()) { outbox.length = 0; return; }
+    if (now - soloT < (over ? 1000 : 100) && !outbox.length) return;
+    soloT = now; W.push({ solo: snap() });
+  }
+  function seeSolo(v) {
+    if (!v || v.id === mp.self) return;
+    if (v.gone) { views.delete(v.id); if (viewing === v.id) viewing = null; return; }
+    views.set(v.id, { v, at: performance.now() });
+    if (viewing === v.id) (v.ev || []).forEach(e => { // replay their effects on our copy
+      if (e[0] === 'p') { vfx.texts.push({ text: e[1], color: e[2], size: e[3], t: 0 }); if (vfx.texts.length > 4) vfx.texts.shift(); }
+      else if (e[0] === 'r') { vfx.flashes.push({ y: e[1], t: 0 }); [...e[2]].forEach((c, x) => { const col = TT_COLORS[c]; if (col) for (let k = 0; k < (e[3] >= 4 ? 4 : 2); k++) vfx.parts.push({ x: (x + 0.5) * CELL, y: (e[1] + 0.5) * CELL, vx: (Math.random() - 0.5) * 260, vy: -Math.random() * 220 - 40, life: 0.5 + Math.random() * 0.5, t: 0, color: col, size: 2 + Math.random() * 3 }); }); }
+    });
+    if (v.fx) { vfx.shake = Math.max(vfx.shake, v.fx[0]); vfx.glow = Math.max(vfx.glow, v.fx[1]); vfx.glowColor = v.fx[2]; vfx.hit = Math.max(vfx.hit, v.fx[3]); }
+    if (!viewing && (idle || over) && !versus && !v.over) { viewing = v.id; vfx = newFx(); } // not playing: watch them
+  }
+  const watched = () => { const w = viewing && views.get(viewing); return w && performance.now() - w.at < 5000 ? w.v : null; };
+  function withView(v, fn) { // draw their board with our drawing code: swap their game in for a moment
+    const mine = { grid, cur, hold, queue, score, lines, level, over, paused, junk, fx };
+    grid = []; for (let y = 0; y < ROWS + HID; y++) grid.push([...v.g.slice(y * COLS, y * COLS + COLS)].map(c => c === '.' ? '' : c));
+    cur = v.c ? { t: v.c[0], r: v.c[1], x: v.c[2], y: v.c[3] } : null; hold = v.h || null; queue = [...(v.q || '')];
+    ({ score, lines, level, over } = v); paused = false; junk = 0; fx = vfx;
+    try { fn(); } finally { ({ grid, cur, hold, queue, score, lines, level, over, paused, junk, fx } = mine); }
+  }
   function startVersus() { // anyone in the room can start; everyone who has the window open plays
     const round = { seed: Math.floor(Math.random() * 1e9), round: Date.now() };
     W.push({ start: round }); beginVersus(round);
@@ -3698,7 +3736,9 @@ function openTetris() {
     q('.tt-note').textContent = '';
   }
   shareState(W, () => ({}), d => {
-    if (d.start) beginVersus(d.start);
+    if (d.solo) seeSolo(d.solo);
+    else if (d.ctl && d.ctl.to === mp.self && allowCtrl && !idle && !versus) { if (d.ctl.down) press(d.ctl.k); else release(d.ctl.k); } // a watcher's key
+    else if (d.start) beginVersus(d.start);
     else if (d.vs && versus && d.vs.round === versus.round && d.vs.id !== mp.self) {
       const was = opps.get(d.vs.id); opps.set(d.vs.id, d.vs);
       if (d.vs.over && was && !was.over) pop(`${d.vs.name} is out!`, d.vs.color, 16);
@@ -3709,6 +3749,7 @@ function openTetris() {
     }
   });
   q('.tt-solo').onclick = () => { versus = null; opps.clear(); countdown = 0; start(); };
+  q('.tt-share').onclick = () => { allowCtrl = !allowCtrl; soloT = 0; };
   q('.tt-vs').onclick = () => startVersus();
 
   function drawCell(ctx, x, y, s, t, ghost) {
@@ -3724,7 +3765,9 @@ function openTetris() {
     const ox = (canvas.width - (maxX - minX + 1) * s) / 2 - minX * s, oy = (70 - (maxY - minY + 1) * s) / 2 - minY * s;
     c.save(); c.translate(ox, oy); cells.forEach(([x, y]) => drawCell(c, x, y, s, t)); c.restore();
   }
+  let drawingView = null;
   function draw() {
+    if (!drawingView && !versus) { const v = watched(); if (v) { drawingView = v; try { withView(v, draw); } finally { drawingView = null; } return; } }
     g.fillStyle = '#10131c'; g.fillRect(0, 0, cv.width, cv.height);
     g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1;
     for (let x = 1; x < COLS; x++) { g.beginPath(); g.moveTo(x * CELL + 0.5, 0); g.lineTo(x * CELL + 0.5, ROWS * CELL); g.stroke(); }
@@ -3744,15 +3787,23 @@ function openTetris() {
       const left = alive();
       if (!over && !left.length) { msg = 'You win!'; if (!won) { won = true; SFX.win(); pop('VICTORY', '#ffd75e', 30); } }
       else if (over) msg = left.length === 1 ? `${left[0][1].name} wins!` : left.length ? 'Out! Watching…' : 'Game over';
-    } else if (over) msg = 'Game over';
+    } else if (drawingView) msg = drawingView.over ? `${drawingView.name}: game over` : drawingView.paused ? `${drawingView.name} paused` : '';
+    else if (idle) msg = 'Press New game to play';
+    else if (over) msg = 'Game over';
     else if (paused) msg = 'Paused';
     else if (!W.el.classList.contains('active')) msg = 'Click to play';
     if (msg) { g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, cv.height / 2 - 30, cv.width, 60); g.fillStyle = '#fff'; g.font = 'bold 24px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(msg, cv.width / 2, cv.height / 2 + 8); }
     drawMini(q('.tt-hold'), hold);
     const nc = q('.tt-next'), n2 = nc.getContext('2d'); n2.clearRect(0, 0, nc.width, nc.height);
     queue.slice(0, 3).forEach((t, k) => { const tmp = document.createElement('canvas'); tmp.width = 104; tmp.height = 70; drawMini(tmp, t); n2.drawImage(tmp, 0, k * 84); });
-    q('.tt-stats').innerHTML = `<div><small>Score</small><b>${score}</b></div><div><small>Lines</small><b>${lines}</b></div><div><small>Level</small><b>${level}</b></div>${versus ? '' : `<div><small>Best</small><b>${best}</b></div>`}`;
+    q('.tt-stats').innerHTML = `<div><small>Score</small><b>${score}</b></div><div><small>Lines</small><b>${lines}</b></div><div><small>Level</small><b>${level}</b></div>${versus || drawingView ? '' : `<div><small>Best</small><b>${best}</b></div>`}`;
     q('.tt-vs').hidden = !live();
+    const sh = q('.tt-share'); sh.hidden = !live() || !!versus || idle || !!drawingView;
+    if (!sh.hidden) { const t = allowCtrl ? 'Others can play: On' : 'Others can play: Off'; if (sh.textContent !== t) sh.textContent = t; sh.classList.toggle('on', allowCtrl); }
+    const note = q('.tt-note'), players = [...views.values()].filter(w => performance.now() - w.at < 5000 && !w.v.over).map(w => w.v);
+    const banner = drawingView ? `👀 Watching ${esc(drawingView.name)}${drawingView.ctrl ? ' · they let you play: your keys move their pieces' : ''}`
+      : !versus && live() && players.length ? `${players.map(v => `<button class="tt-watchbtn" data-id="${esc(v.id)}">👀 Watch ${esc(v.name)}</button>`).join('')}` : '';
+    if (note.dataset.h !== banner) { note.dataset.h = banner; note.innerHTML = banner; note.querySelectorAll('.tt-watchbtn').forEach(b => b.onclick = () => { viewing = b.dataset.id; vfx = newFx(); }); }
     const box = q('.tt-opps');
     box.innerHTML = versus && opps.size ? '<h4>Opponents</h4>' : '';
     if (versus) opps.forEach(o => {
@@ -3800,9 +3851,11 @@ function openTetris() {
   }
   function frame(t) {
     const dt = Math.min(100, t - last || 0); last = t;
-    stepFx(dt);
+    stepFx(dt); if (watched()) { const f = fx; fx = vfx; try { stepFx(dt); } finally { fx = f; } }
+    if (viewing && !watched()) viewing = null; // they stopped or left
+    shareSolo(t);
     if (countdown > 0) { countdown -= dt / 1000; const c = Math.ceil(countdown); if (c < lastCount) { lastCount = c; SFX.count(c <= 0); if (c <= 0) pop('GO!', '#7dff8a', 30); } }
-    else if (!over && !paused && (W.el.classList.contains('active') || versus)) { // versus doesn't pause when you click away
+    else if (!idle && !over && !paused && (W.el.classList.contains('active') || versus || (allowCtrl && live()))) { // versus doesn't pause when you click away
       const speed = Math.max(30, Math.pow(0.8 - (level - 1) * 0.007, level - 1) * 1000) / (keys.soft ? 20 : 1);
       dropT += dt;
       while (dropT >= speed) { dropT -= speed; if (move(0, 1)) { if (keys.soft) score++; } else break; }
@@ -3886,16 +3939,21 @@ function openTetris() {
     if (binding || !q('.tt-cfg').hidden) return;
     const k = keyAction(e.code); if (!k || !W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
     e.preventDefault();
+    const v = watched();
+    if (v) { if (v.ctrl && k !== 'pause' && (e.type === 'keyup' || !e.repeat)) W.push({ ctl: { to: v.id, k, down: e.type === 'keydown' } }); return; } // watching: only with their say-so
+    if (idle) return;
     if (e.type === 'keydown') { if (!e.repeat) press(k); } else release(k);
   };
   document.addEventListener('keydown', onKey); document.addEventListener('keyup', onKey);
   W.body.querySelectorAll('.tt-touch button').forEach(b => {
-    b.addEventListener('pointerdown', e => { e.preventDefault(); press(b.dataset.k); });
-    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => release(b.dataset.k)));
+    const touch = (k, down) => { const v = watched(); if (v) { if (v.ctrl) W.push({ ctl: { to: v.id, k, down } }); } else if (!idle) (down ? press : release)(k); };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); touch(b.dataset.k, true); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => touch(b.dataset.k, false)));
   });
-  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onBind, true); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } W.closeSynth(); ttWin = null; };
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onBind, true); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } if (live() && !idle) W.push({ solo: { id: mp.self, gone: true } }); W.closeSynth(); ttWin = null; };
   ttWin = W;
-  start(); raf = requestAnimationFrame(frame);
+  start(); if (remoteOpen) idle = true; // someone else opened it: watch them until you start your own
+  raf = requestAnimationFrame(frame);
   return W;
 }
 
@@ -4218,7 +4276,8 @@ function openRhythm() {
   }
   function stopPreview() { if (preview) { preview.pause(); preview.removeAttribute('src'); preview.load(); } preview = null; previewFor = null; }
   const previewT = setInterval(() => { // only while the song list is showing and this window is in front
-    if (!W.el.classList.contains('active') || game || menuEl.hidden) stopPreview(); else if (song && !preview && menuEl.dataset.view === 'select') startPreview(song);
+    if (!W.el.classList.contains('active') || (game && !game.done) || menuEl.hidden) stopPreview(); else if (song && !preview && menuEl.dataset.view === 'select') startPreview(song);
+    players.forEach((p, id) => { if (performance.now() - (p.seen || 0) > 6000) players.delete(id); }); watchBanner();
   }, 700);
 
   /* ---- song select ---- */
@@ -4286,26 +4345,30 @@ function openRhythm() {
   }
 
   /* ---- playing ---- */
+  async function loadSong(s, d, sideName) { // the decoded song and the notes for one side of its chart
+    const buf = await rkDecode(s.src);
+    let notes, opp = [], bpm = 0;
+    if (s.chart) {
+      const f = await rkLoadFnf(s.chart), c = f.diffs[d] || Object.values(f.diffs)[0];
+      if (!c) throw new Error('the chart has no notes');
+      const side = sideName === 'opp'; notes = side ? c.opp : c.player; opp = side ? c.player : c.opp; bpm = f.bpm;
+      const shift = (+s.chartOffset || 0) / 1000; if (shift) { notes = notes.map(n => ({ ...n, t: n.t + shift })); opp = opp.map(n => ({ ...n, t: n.t + shift })); }
+    } else { const key = `${s.src}|${d}`; notes = rkCharts[key] ||= rkChart(buf, d, s.src); }
+    return { buf, notes, opp, bpm };
+  }
   async function play(s, d, tog = null) {
     if (!s) return;
-    stopPreview(); say(s.chart ? 'Loading the song and chart…' : 'Listening to the song and making the chart…');
+    stopWatch(); stopPreview(); say(s.chart ? 'Loading the song and chart…' : 'Listening to the song and making the chart…');
     menuEl.classList.add('loading');
     try {
-      const buf = await rkDecode(s.src);
-      let notes, opp = [], bpm = 0;
-      if (s.chart) {
-        const f = await rkLoadFnf(s.chart), c = f.diffs[d] || Object.values(f.diffs)[0];
-        if (!c) throw new Error('the chart has no notes');
-        const side = opt.side === 'opp'; notes = side ? c.opp : c.player; opp = side ? c.player : c.opp; bpm = f.bpm;
-        const shift = (+s.chartOffset || 0) / 1000; if (shift) { notes = notes.map(n => ({ ...n, t: n.t + shift })); opp = opp.map(n => ({ ...n, t: n.t + shift })); }
-      } else { const key = `${s.src}|${d}`; notes = rkCharts[key] ||= rkChart(buf, d, s.src); }
+      const { buf, notes, opp, bpm } = await loadSong(s, d, opt.side);
       if (rkCtx.state === 'suspended') await rkCtx.resume();
       setMusic(false); if (playerWin) { const a = playerWin.body.querySelector('audio'); if (a) a.pause(); }
       together = tog; others.clear();
       const src = rkCtx.createBufferSource(); src.buffer = buf; gain = rkCtx.createGain(); analyser = rkCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
       W.audio.apply(); src.connect(gain); gain.connect(analyser); analyser.connect(rkCtx.destination);
       const lead = 2.2, t0 = rkCtx.currentTime + lead; src.start(t0);
-      game = { s, d, src, t0, bpm, notes: notes.map(n => ({ ...n, hit: null })), opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0,
+      game = { s, d, src, t0, bpm, run: Date.now(), side: s.chart ? opt.side : 'player', notes: notes.map((n, i) => ({ ...n, i, hit: null })), opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0, out: [],
         counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, held: [0, 0, 0, 0], press: [0, 0, 0, 0], fx: [], pop: null, errs: [], end: buf.duration, done: false, bump: 0, spec: new Uint8Array(analyser.frequencyBinCount) };
       src.onended = () => finish();
       menuEl.classList.remove('loading'); menuEl.hidden = true; q('.rk-play').hidden = false;
@@ -4314,13 +4377,13 @@ function openRhythm() {
   }
   const now = () => rkCtx.currentTime - game.t0 - (rkCtx.outputLatency || rkCtx.baseLatency || 0) - opt.offset / 1000; // song time the ear hears
   function judge(lane) {
-    if (!game || game.done) return;
+    if (!game || game.done || game.watch) return;
     game.held[lane] = 1; game.press[lane] = 1;
     const t = now(), n = game.notes.find(x => x.lane === lane && !x.hit && Math.abs(x.t - t) * 1000 <= RK_MISS);
     if (!n) return;
     const err = (t - n.t) * 1000, j = RK_JUDGE.find(([, w]) => Math.abs(err) <= w);
-    if (!j) { n.hit = 'Miss'; return miss(); }
-    n.hit = j[0]; game.counts[j[0]]++; game.combo++; game.maxCombo = Math.max(game.maxCombo, game.combo);
+    if (!j) { n.hit = 'Miss'; game.out.push([n.i, 'Miss']); return miss(); }
+    n.hit = j[0]; game.counts[j[0]]++; game.out.push([n.i, j[0], Math.round(err)]); game.combo++; game.maxCombo = Math.max(game.maxCombo, game.combo);
     game.score += Math.round(j[2] * (1 + Math.min(game.combo, 100) / 100));
     game.pop = { text: j[0], color: j[3], at: performance.now(), err: j[0] === 'Perfect' ? 0 : err };
     game.errs.push({ err, at: performance.now() }); if (game.errs.length > 30) game.errs.shift();
@@ -4330,10 +4393,10 @@ function openRhythm() {
     game.fx.push({ lane, at: performance.now(), color: laneColor(lane), big: j[0] === 'Perfect' });
   }
   function release(lane) {
-    if (!game) return;
+    if (!game || game.watch) return;
     game.held[lane] = 0;
     const t = now(), n = game.notes.find(x => x.lane === lane && x.holding);
-    if (n && t < n.t + n.len - 0.12) { n.holding = false; n.broke = true; miss('Dropped'); } // let go too soon
+    if (n && t < n.t + n.len - 0.12) { n.holding = false; n.broke = true; game.out.push([n.i, 'Dropped']); miss('Dropped'); } // let go too soon
   }
   function miss(text = 'Miss') { game.counts.Miss++; game.combo = 0; game.pop = { text, color: '#ff5a5a', at: performance.now() }; }
   const accuracy = () => { const c = game.counts, total = c.Perfect + c.Great + c.Good + c.Miss; return total ? (c.Perfect * 300 + c.Great * 200 + c.Good * 100) / (total * 300) * 100 : 100; };
@@ -4358,8 +4421,10 @@ function openRhythm() {
   function frame() {
     if (!game) return;
     const t = now(), nowMs = performance.now();
-    for (const n of game.notes) {
-      if (!n.hit && (t - n.t) * 1000 > RK_MISS) { n.hit = 'Miss'; miss(); }
+    if (game.watch) { // someone else's game: hits come from them, held notes follow their keys
+      for (const n of game.notes) if (n.len > 0.05 && n.hit && !n.broke && !n.held && n.hit !== 'Miss') { if (t >= n.t + n.len) { n.holding = false; n.held = true; } else n.holding = !!game.held[n.lane]; }
+    } else for (const n of game.notes) {
+      if (!n.hit && (t - n.t) * 1000 > RK_MISS) { n.hit = 'Miss'; game.out.push([n.i, 'Miss']); miss(); }
       if (n.holding) { if (t >= n.t + n.len) { n.holding = false; n.held = true; game.score += 50; } else if (game.held[n.lane]) game.score += 1; }
     }
     // background: the song's spectrum and a pulse on the beat
@@ -4442,7 +4507,7 @@ function openRhythm() {
     const rx = PX + LW * 4 + 12; g.textAlign = 'left';
     g.fillStyle = '#fff'; g.font = '900 22px Segoe UI, sans-serif'; g.fillText(String(game.score).padStart(7, '0'), rx, 34);
     g.font = 'bold 15px Segoe UI, sans-serif'; g.fillStyle = '#cfd8ff'; g.fillText(accuracy().toFixed(2) + '%', rx, 56);
-    const live = grade(accuracy()); g.font = '900 30px Segoe UI, sans-serif'; g.fillStyle = { S: '#ffd23f', A: '#7dff8a', B: '#7df9ff', C: '#c49bff', D: '#ff7a7a' }[live]; g.fillText(live, rx, 96);
+    const lg = grade(accuracy()); g.font = '900 30px Segoe UI, sans-serif'; g.fillStyle = { S: '#ffd23f', A: '#7dff8a', B: '#7df9ff', C: '#c49bff', D: '#ff7a7a' }[lg]; g.fillText(lg, rx, 96);
     g.font = '12px Segoe UI, sans-serif';
     [['Perfect', '#7df9ff'], ['Great', '#7dff8a'], ['Good', '#ffe066'], ['Miss', '#ff5a5a']].forEach(([k, c], i) => { g.fillStyle = c; g.fillText(k, rx, 130 + i * 18); g.fillStyle = '#fff'; g.textAlign = 'right'; g.fillText(game.counts[k], CW - 10, 130 + i * 18); g.textAlign = 'left'; });
     // progress ring
@@ -4452,6 +4517,11 @@ function openRhythm() {
     g.fillStyle = '#fff'; g.font = 'bold 11px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(rkTime(Math.max(0, game.end - Math.max(0, t))), pcx, pcy + 4);
     if (t < 0) { const c = Math.ceil(-t); g.textAlign = 'center'; g.font = '900 64px Segoe UI, sans-serif'; g.fillStyle = `rgba(255,255,255,${0.4 + (-t % 1) * 0.6})`; g.fillText(c, PX + LW * 2, 330); g.font = 'bold 13px Segoe UI, sans-serif'; g.fillStyle = '#cfd8ff'; g.fillText('Esc to quit', PX + LW * 2, 360); }
     if (together && nowMs - liveT > 500) { liveT = nowMs; W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc: accuracy(), done: false } }); }
+    else if (!together && !game.watch && live() && (nowMs - liveT > 90 || game.out.length > 6)) { liveT = nowMs; W.push({ rw: rwPacket(t) }); } // for anyone watching
+    if (game.watch) {
+      g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(PX, 0, LW * 4, 26); g.fillStyle = game.color || '#fff'; g.font = 'bold 13px Segoe UI, sans-serif'; g.textAlign = 'center';
+      g.fillText(`👀 Watching ${game.name} · Esc to stop`, PX + LW * 2, 18);
+    }
     renderLive();
     raf = requestAnimationFrame(frame);
   }
@@ -4468,11 +4538,13 @@ function openRhythm() {
   }
   function finish() {
     if (!game || game.done) return;
+    if (game.watch) { const w = game; stopWatch(); menu(`${w.name}'s song ended.`); return; }
     game.done = true; cancelAnimationFrame(raf);
     game.notes.forEach(n => { if (!n.hit) { n.hit = 'Miss'; game.counts.Miss++; } });
     const acc = accuracy(), gr = grade(acc), b = best(game.s, game.d), isBest = !b || game.score > b.score;
     if (isBest) store.set(bestKey(game.s, game.d), { score: game.score, grade: gr, acc: +acc.toFixed(2), combo: game.maxCombo });
     if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc, done: true } });
+    else if (live()) W.push({ rw: { id: mp.self, run: game.run, end: true, name: me.name, score: game.score, acc, grade: gr } });
     const c = game.counts, total = Math.max(1, c.Perfect + c.Great + c.Good + c.Miss);
     // how early or late the hits were, in 10 ms buckets
     const bucket = new Array(31).fill(0); (game.allErrs || []).forEach(e => { bucket[Math.max(0, Math.min(30, Math.round(e / 10) + 15))]++; });
@@ -4490,7 +4562,84 @@ function openRhythm() {
     menuEl.querySelector('.rk-back').onclick = () => menu();
     setMusic(true);
   }
-  function stop() { if (game && !game.done) { game.done = true; try { game.src.onended = null; game.src.stop(); } catch {} cancelAnimationFrame(raf); setMusic(true); } }
+  function stop() {
+    if (game && game.watch) return stopWatch();
+    if (game && !game.done) { game.done = true; try { game.src.onended = null; game.src.stop(); } catch {} cancelAnimationFrame(raf); setMusic(true); if (live() && !together) W.push({ rw: { id: mp.self, run: game.run, end: true, stopped: true, name: me.name } }); }
+  }
+  // watching someone play alone: their song, their notes and their hits, about ten times a second
+  const rwPacket = t => ({ id: mp.self, run: game.run, name: me.name, color: me.color, src: game.s.src, diff: game.d, side: game.side, t, score: game.score, combo: game.combo, max: game.maxCombo,
+    counts: game.counts, held: game.held.slice(), ev: game.out.splice(0) });
+  const players = new Map(); // id -> latest packet from someone playing alone
+  let skipRun = null, watchLoading = null;
+  function stopWatch() {
+    if (!game || !game.watch) return;
+    game.done = true; try { game.src.onended = null; game.src.stop(); } catch {} cancelAnimationFrame(raf); setMusic(true);
+    skipRun = game.run; game = null;
+  }
+  function syncWatch(p) { // keep our copy of their song playing at the same spot
+    const est = p.t, lat = rkCtx.outputLatency || rkCtx.baseLatency || 0;
+    if (game.src && Math.abs(now() - est) < 0.2) return;
+    try { if (game.src) { game.src.onended = null; game.src.stop(); } } catch {}
+    const at = rkCtx.currentTime + 0.03; game.t0 = at - est - lat - opt.offset / 1000;
+    const src = rkCtx.createBufferSource(); src.buffer = game.buf; src.connect(gain);
+    const pos = at - game.t0; if (pos >= 0) src.start(at, pos); else src.start(game.t0, 0);
+    src.onended = () => { if (game && game.watch && game.src === src) finish(); };
+    game.src = src;
+  }
+  function applyWatch(p) {
+    Object.assign(game, { score: p.score, combo: p.combo, maxCombo: p.max, counts: p.counts, held: p.held || [0, 0, 0, 0] });
+    for (const [i, j, err] of p.ev || []) {
+      const n = game.notes[i]; if (!n) continue;
+      n.hit = j;
+      if (j === 'Dropped') { n.broke = true; n.holding = false; game.pop = { text: j, color: '#ff5a5a', at: performance.now() }; }
+      else if (j === 'Miss') game.pop = { text: j, color: '#ff5a5a', at: performance.now() };
+      else {
+        const col = (RK_JUDGE.find(x => x[0] === j) || [])[3] || '#fff';
+        game.pop = { text: j, color: col, at: performance.now(), err: j === 'Perfect' ? 0 : err || 0 }; game.bump = 1; game.press[n.lane] = 1;
+        game.fx.push({ lane: n.lane, at: performance.now(), color: laneColor(n.lane), big: j === 'Perfect' });
+        game.errs.push({ err: err || 0, at: performance.now() }); if (game.errs.length > 30) game.errs.shift();
+      }
+    }
+    syncWatch(p);
+  }
+  async function startWatch(p) {
+    const s = songs.find(x => x.src === p.src); if (!s || watchLoading === p.run) return;
+    watchLoading = p.run; stopPreview();
+    try {
+      const { buf, notes, opp, bpm } = await loadSong(s, p.diff, p.side);
+      if (rkCtx.state === 'suspended') rkCtx.resume().catch(() => {});
+      const cur = players.get(p.id) || p; if (watchLoading !== p.run || (game && !game.done) || cur.run !== p.run || cur.end) return;
+      setMusic(false);
+      gain = rkCtx.createGain(); analyser = rkCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
+      W.audio.apply(); gain.connect(analyser); analyser.connect(rkCtx.destination);
+      game = { watch: true, who: p.id, name: p.name, color: p.color, run: p.run, s, d: p.diff, side: p.side, buf, src: null, t0: 0, bpm, notes: notes.map((n, i) => ({ ...n, i, hit: n.t < cur.t - 0.15 ? 'old' : null, held: n.t + n.len < cur.t })),
+        opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0, counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, held: [0, 0, 0, 0], press: [0, 0, 0, 0], fx: [], pop: null, errs: [], out: [], end: buf.duration, done: false, bump: 0, spec: new Uint8Array(analyser.frequencyBinCount) };
+      menuEl.hidden = true; q('.rk-play').hidden = false;
+      applyWatch(cur);
+      cancelAnimationFrame(raf); raf = requestAnimationFrame(frame);
+    } catch { /* can't load it here: stay on the menu */ } finally { if (watchLoading === p.run) watchLoading = null; }
+  }
+  function seePlayer(p) {
+    if (!p || p.id === mp.self) return;
+    if (p.end) {
+      players.delete(p.id);
+      if (game && game.watch && game.who === p.id) { stopWatch(); menu(p.stopped ? `${p.name} stopped playing.` : `${p.name} finished: ${p.grade} · ${p.score.toLocaleString()} · ${(+p.acc).toFixed(2)}%`); }
+      return;
+    }
+    const was = players.get(p.id); players.set(p.id, { ...p, ev: [] });
+    if (game && game.watch && game.who === p.id && game.run === p.run) return applyWatch(p);
+    if (game && game.watch && game.who === p.id) { stopWatch(); skipRun = null; } // they started another song
+    if ((!game || game.done) && !menuEl.hidden && p.run !== skipRun && W.el.isConnected) startWatch(p); // not playing ourselves: watch them
+    if (!was) watchBanner();
+  }
+  function watchBanner() { // on the song list: who's playing, to watch again after stopping
+    const head = menuEl.querySelector('.rk-head'); if (!head) return;
+    let box = head.querySelector('.rk-watch'); const list = [...players.values()].filter(p => performance.now() - (p.seen || 0) < 4000);
+    if (!list.length) { if (box) box.remove(); return; }
+    if (!box) { box = el('<span class="rk-watch"></span>'); head.insertBefore(box, head.lastChild); }
+    const html = list.map(p => `<button data-id="${esc(p.id)}">👀 Watch ${esc(p.name)}</button>`).join('');
+    if (box.dataset.h !== html) { box.dataset.h = html; box.innerHTML = html; box.querySelectorAll('button').forEach(b => b.onclick = () => { const p = players.get(b.dataset.id); if (p) { skipRun = null; startWatch(p); } }); }
+  }
   // input
   const onKey = e => {
     if (!W.el.classList.contains('active') || e.target.matches?.('input, textarea')) return;
@@ -4499,7 +4648,8 @@ function openRhythm() {
       binding = -1; renderDetail(); return;
     }
     if (game && !game.done) {
-      if (e.key === 'Escape' && e.type === 'keydown') { menu('Stopped.'); return; }
+      if (e.key === 'Escape' && e.type === 'keydown') { menu(game.watch ? 'Stopped watching.' : 'Stopped.'); return; }
+      if (game.watch) return;
       const l = opt.keys.indexOf(e.code); if (l < 0 || e.repeat) return;
       e.preventDefault(); if (e.type === 'keydown') judge(l); else release(l);
       return;
@@ -4519,9 +4669,10 @@ function openRhythm() {
   // multiplayer: someone pressed "Play together"; live scores while playing it
   shareState(W, () => ({}), d => {
     if (d.together) { const s = songs.find(x => x.src === d.together.src); if (s) { stop(); diff = d.together.diff; song = s; play(s, d.together.diff, d.together); } }
+    else if (d.rw) { const p = d.rw; if (!p.end) p.seen = performance.now(); seePlayer(p); }
     else if (d.live && together && d.live.tog === together.id) { others.set(d.live.id, d.live); renderLive(); const lv = q('.rk-live2'); if (lv) lv.innerHTML = q('.rk-live').innerHTML; }
   });
-  W.onClose = () => { stop(); stopPreview(); clearInterval(previewT); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); rkWin = null; };
+  W.onClose = () => { stop(); stopWatch(); stopPreview(); clearInterval(previewT); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); rkWin = null; };
   rkWin = W;
   menu();
   return W;

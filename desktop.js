@@ -1548,6 +1548,21 @@ function openPinball() {
     [320, 600, 320, 150], // launch lane
     [10, 470, 92, 528], [320, 470, 238, 528], // inlanes to the flippers
     [60, 400, 60, 440], [270, 400, 270, 440], // small guide posts
+    [120, 34, 120, 60], [152, 34, 152, 60], [184, 34, 184, 60], [216, 34, 216, 60], // posts between the three top lanes
+  ];
+  // things to aim for: three top lanes (light all for a bigger end-of-ball bonus), three drop targets on the
+  // left, the rocket target on the right and the black hole in the middle (sinks the ball when lit; two
+  // sinks start multiball). Missions ask for one of them and promote you through the ranks.
+  const LANES = [136, 168, 200], HOLE = { x: 165, y: 395 }, TARGETS = [186, 210, 234], ROCKET = [316, 232, 316, 268];
+  const RANKS = [[0, 'Cadet'], [1, 'Ensign'], [3, 'Lieutenant'], [5, 'Captain'], [8, 'Commander'], [12, 'Admiral']];
+  const rankName = n => RANKS.filter(([k]) => n >= k).pop()[1];
+  const MISSIONS = [
+    { ev: 'bumper', goal: r => 12 + r * 2, text: n => `Hit the bumpers ${n} times`, reward: 5000 },
+    { ev: 'star', goal: r => 4 + Math.floor(r / 2), text: n => `Hit the yellow stars ${n} times`, reward: 6000 },
+    { ev: 'lanes', goal: r => 1 + Math.floor(r / 4), text: n => n > 1 ? `Light all 3 top lanes ${n} times` : 'Light all 3 top lanes', reward: 7500 },
+    { ev: 'bank', goal: r => 1 + Math.floor(r / 4), text: n => n > 1 ? `Knock down all 3 targets ${n} times` : 'Knock down all 3 targets', reward: 7500 },
+    { ev: 'rocket', goal: r => 3 + Math.floor(r / 3), text: n => `Refuel: hit the rocket ${n} times`, reward: 6000 },
+    { ev: 'hole', goal: () => 1, text: () => 'Sink the ball in the black hole', reward: 10000, lights: true },
   ];
   const gate = [320, 150, 350, 110]; // closes the launch lane once the ball is out
   const bumpers = [
@@ -1571,6 +1586,15 @@ function openPinball() {
     start: () => [0, 4, 7, 12].forEach((st, k) => tone(392 * Math.pow(2, st / 12), 0.16, { type: 'square', vol: 0.07, at: k * 0.08 })),
     milestone: () => [0, 7, 12, 16, 19, 24].forEach((st, k) => tone(523 * Math.pow(2, st / 12), 0.18, { type: 'square', vol: 0.06, at: k * 0.06 })),
     wall: v => tone(500, 0.03, { noise: true, vol: Math.min(0.1, v / 9000) }),
+    mission: () => [0, 7].forEach((st, k) => tone(660 * Math.pow(2, st / 12), 0.14, { type: 'triangle', vol: 0.12, at: k * 0.12 })),
+    complete: () => [0, 4, 7, 12, 16].forEach((st, k) => tone(587 * Math.pow(2, st / 12), 0.16, { type: 'square', vol: 0.06, at: k * 0.07 })),
+    fail: () => [0, -5].forEach((st, k) => tone(220 * Math.pow(2, st / 12), 0.3, { type: 'sawtooth', vol: 0.06, at: k * 0.2 })),
+    lanes: () => [0, 5, 10].forEach((st, k) => tone(784 * Math.pow(2, st / 12), 0.1, { type: 'square', vol: 0.06, at: k * 0.06 })),
+    bank: () => { tone(300, 0.2, { noise: true, vol: 0.1 }); [0, 7].forEach((st, k) => tone(440 * Math.pow(2, st / 12), 0.15, { type: 'square', vol: 0.06, at: 0.1 + k * 0.08 })); },
+    hole: () => tone(500, 0.9, { type: 'sine', vol: 0.15, slide: -430 }),
+    multi: () => [0, 4, 7, 12, 7, 12, 16].forEach((st, k) => tone(523 * Math.pow(2, st / 12), 0.12, { type: 'square', vol: 0.07, at: k * 0.07 })),
+    save: () => [0, 12].forEach((st, k) => tone(440 * Math.pow(2, st / 12), 0.15, { type: 'triangle', vol: 0.12, at: k * 0.1 })),
+    extra: () => [0, 4, 7, 12].forEach((st, k) => tone(659 * Math.pow(2, st / 12), 0.2, { type: 'triangle', vol: 0.14, at: k * 0.1 })),
   };
   const sparks = (x, y, color, n, power = 1) => { for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, v = (60 + Math.random() * 200) * power; fx.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, life: 0.35 + Math.random() * 0.4, color }); } };
   const popText = (text, x, y, color = '#ffe66b', size = 14) => {
@@ -1578,8 +1602,49 @@ function openPinball() {
     fx.texts.push({ text, x, y, color, size, t: 0 }); if (fx.texts.length > 8) fx.texts.shift();
   };
   const MILESTONES = [5000, 10000, 25000, 50000, 100000];
-  const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true }; charge = 0; };
-  function newGame() { score = 0; balls = 3; over = false; resetBall(); }
+  let extra = [], lanes = [0, 0, 0], targets = [1, 1, 1], targetsBack = 0, mult = 1, bonus = 0, holeLit = false, locks = 0, held = null, saveUntil = 0;
+  let rank = 0, mission = null, missionNext = 0, gt = 0, rocketFlash = 0, rocketT = 0, skillLane = -1, skillUntil = 0, ann = null, annN = 0;
+  const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true, lane: -1 }; charge = 0; };
+  function newGame() {
+    score = 0; balls = 3; over = false; resetBall(); extra = []; held = null;
+    lanes = [0, 0, 0]; targets = [1, 1, 1]; mult = 1; bonus = 0; holeLit = false; locks = 0; rank = 0; mission = null; missionNext = 0; gt = 0;
+  }
+  // a message for everyone at the table: shown here and sent with the table so watchers see it too
+  function announce(text, color = '#ffe66b', size = 18, sfx = '', y = 200) { popText(text, 165, y, color, size); if (sfx && SFX[sfx]) SFX[sfx](); ann = { n: ++annN, text, color, size, sfx, y }; }
+  function newMission() {
+    let k; do k = Math.floor(Math.random() * MISSIONS.length); while (mission && k === mission.k && MISSIONS.length > 1);
+    const M = MISSIONS[k], goal = M.goal(rank);
+    mission = { k, prog: 0, goal, left: 45 };
+    if (M.lights) holeLit = true;
+    announce(`NEW MISSION: ${M.text(goal)}`, '#7de3ff', 13, 'mission', 150);
+  }
+  function progress(ev, n = 1) {
+    if (!mission || MISSIONS[mission.k].ev !== ev) return;
+    mission.prog = Math.min(mission.goal, mission.prog + n);
+    if (mission.prog < mission.goal) return;
+    const M = MISSIONS[mission.k], pts = Math.round(M.reward * (1 + rank * 0.25) / 100) * 100, before = rankName(rank);
+    score += pts; rank++; mission = null; missionNext = gt + 3;
+    announce(`MISSION COMPLETE +${pts.toLocaleString()}`, '#8dff8a', 17, 'complete', 180);
+    if (rankName(rank) !== before) {
+      const r = rankName(rank); setTimeout(() => announce(`PROMOTED: ${r.toUpperCase()}!`, '#ffd23f', 20, 'milestone', 230), 900);
+      if (r === 'Captain' || r === 'Admiral') { balls++; setTimeout(() => announce('EXTRA BALL!', '#ff9df5', 20, 'extra', 270), 1800); }
+    }
+  }
+  function laneHit(i) {
+    if (gt < skillUntil && i === skillLane) { score += 7500; skillUntil = 0; announce('SKILL SHOT! +7,500', '#ff9df5', 18, 'complete', 120); }
+    if (lanes[i]) return;
+    lanes[i] = 1; score += 300; bonus += 100;
+    if (lanes.every(Boolean)) {
+      lanes = [0, 0, 0]; mult = Math.min(5, mult + 1); holeLit = true; progress('lanes');
+      announce(`BONUS ${mult}X · HOLE LIT`, '#ffd23f', 17, 'lanes', 110);
+    }
+  }
+  function capture() { // the black hole swallows the ball for a moment, then fires it back out
+    held = { b: ball, until: gt + 1.3 }; ball.vx = ball.vy = 0; ball.x = HOLE.x; ball.y = HOLE.y; ball.held = true;
+    holeLit = false; score += 2000; bonus += 500; locks++; progress('hole');
+    if (locks >= 2 && !extra.length) { locks = 0; held.multi = true; announce('MULTIBALL!', '#ff7ad9', 26, 'multi', 320); }
+    else announce(locks === 1 && !extra.length ? 'BALL LOCKED · ONE MORE FOR MULTIBALL' : 'BLACK HOLE +2,000', '#b49bff', 14, 'hole', 340);
+  }
   newGame();
 
   function hitSeg(x1, y1, x2, y2, thick) { // pushes the ball out of a thick line, returns the contact
@@ -1601,6 +1666,14 @@ function openPinball() {
       const prev = f.a, target = f.on ? f.up : f.rest, sp = 16 * dt;
       f.a += Math.max(-sp, Math.min(sp, target - f.a)); f.w = (f.a - prev) / dt;
     });
+    const all = [ball, ...extra];
+    all.forEach(b => { ball = b; stepBall(dt); });
+    ball = all[0];
+    extra = extra.filter(b => !b.gone);
+    if (ball.gone) { if (extra.length) { ball = extra.shift(); announce('MULTIBALL OVER', '#ff9df5', 14, '', 470); } else drain(); }
+  }
+  function stepBall(dt) {
+    if (ball.held) { ball.x = HOLE.x; ball.y = HOLE.y; return; }
     if (ball.onPlunger) { ball.x = 335; ball.y = 562 + charge * 14; return; }
     ball.vy += G * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     if (ball.inLane && ball.x < 316) ball.inLane = false;
@@ -1612,8 +1685,21 @@ function openPinball() {
       const c = { nx: dx / d, ny: dy / d };
       ball.x = b.x + c.nx * (R + b.r); ball.y = b.y + c.ny * (R + b.r);
       bounce(c, 0.9); ball.vx += c.nx * 180; ball.vy += c.ny * 180;
-      score += b.pts; b.flash = 0.15;
+      score += b.pts; b.flash = 0.15; bonus += 20; progress(b.pts > 50 ? 'bumper' : 'star');
     });
+    // top lanes: passing through one lights it
+    const inLane = ball.y > 38 && ball.y < 58 ? LANES.findIndex(x => Math.abs(ball.x - x) < 11) : -1;
+    if (inLane >= 0 && inLane !== ball.lane) laneHit(inLane);
+    ball.lane = inLane;
+    // drop targets: standing ones are solid, a hit knocks one down
+    TARGETS.forEach((y, k) => {
+      if (!targets[k]) return;
+      const c = hitSeg(17, y, 17, y + 16, 3); if (!c) return;
+      bounce(c, 0.5); targets[k] = 0; score += 500; bonus += 100;
+      if (targets.every(t => !t)) { score += 3000; holeLit = true; targetsBack = gt + 1.5; progress('bank'); announce('TARGETS CLEARED · HOLE LIT', '#ff9d5c', 16, 'bank', 260); }
+    });
+    { const c = hitSeg(...ROCKET, 3); if (c) { bounce(c, 0.6); if (gt - rocketT > 0.3) { rocketT = gt; rocketFlash = 0.4; score += 250; bonus += 50; progress('rocket'); SFX.bumper(false); } } }
+    if (holeLit && !held && Math.hypot(ball.x - HOLE.x, ball.y - HOLE.y) < 13) capture();
     flippers.forEach(f => {
       const ex = f.x + Math.cos(f.a) * f.len, ey = f.y + Math.sin(f.a) * f.len;
       const c = hitSeg(f.x, f.y, ex, ey, 7);
@@ -1625,16 +1711,24 @@ function openPinball() {
     }
     const sp = Math.hypot(ball.vx, ball.vy);
     if (sp > 1400) { ball.vx *= 1400 / sp; ball.vy *= 1400 / sp; }
-    if (ball.y > TH + 20) drain();
+    if (ball.y > TH + 20) ball.gone = true;
   }
   function drain() {
+    if (gt < saveUntil) { resetBall(); saveUntil = 0; announce('BALL SAVED', '#7de3ff', 22, 'save', 440); return; } // lost straight away: have it back
+    if (bonus) { const total = bonus * mult; score += total; popText(`BONUS ${bonus.toLocaleString()} × ${mult} = ${total.toLocaleString()}`, 165, 250, '#ffd23f', 14); ann = { n: ++annN, text: `BONUS ${bonus.toLocaleString()} × ${mult} = ${total.toLocaleString()}`, color: '#ffd23f', size: 14, y: 250 }; }
+    bonus = 0; mult = 1; lanes = [0, 0, 0];
     balls--;
     if (balls > 0) return resetBall();
-    over = true; resetBall();
+    over = true; resetBall(); mission = null;
     if (score > best) { best = score; store.set('pinball-best', best); }
     W.push();
   }
-  function launch() { if (ball.onPlunger && !over) { ball.onPlunger = false; ball.vy = -(850 + 550 * charge); charge = 0; } }
+  function launch() {
+    if (!ball.onPlunger || over) return;
+    ball.onPlunger = false; ball.vy = -(850 + 550 * charge); charge = 0;
+    saveUntil = gt + 8; skillLane = Math.floor(Math.random() * 3); skillUntil = gt + 4; // a quick shot into the blinking lane is a skill shot
+    if (!mission && gt >= missionNext) newMission();
+  }
 
   // the look: a deep-space table with chrome rails, mushroom bumpers and a ring of lights (drawn once,
   // then the moving parts on top), tilted back with CSS for the 3D feel, and the black score panel
@@ -1707,14 +1801,31 @@ function openPinball() {
     g.save();
     if (fx.shake > 0.3) g.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
     g.drawImage(art, 0, 0);
-    // ring of lights round a glowing hole in the middle (just for looks)
-    const cx = 165, cy = 395, glow = g.createRadialGradient(cx, cy, 2, cx, cy, 30);
-    glow.addColorStop(0, '#bff3ff'); glow.addColorStop(0.4, '#3cb7ff'); glow.addColorStop(1, 'rgba(20,60,160,0)');
-    g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, 30, 0, Math.PI * 2); g.fill();
+    // the black hole, with a ring of lights that fills up as the mission goes along
+    const cx = HOLE.x, cy = HOLE.y, pulse = holeLit ? 0.5 + 0.5 * Math.sin(now / 140) : 0, glow = g.createRadialGradient(cx, cy, 2, cx, cy, 30 + pulse * 6);
+    glow.addColorStop(0, holeLit ? '#ffffff' : '#bff3ff'); glow.addColorStop(0.4, holeLit ? '#b06bff' : '#3cb7ff'); glow.addColorStop(1, 'rgba(20,60,160,0)');
+    g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, 30 + pulse * 6, 0, Math.PI * 2); g.fill();
+    if (held) { g.strokeStyle = 'rgba(220,190,255,.8)'; g.lineWidth = 2; for (let k = 0; k < 3; k++) { g.beginPath(); g.arc(cx, cy, 6 + ((now / 8 + k * 7) % 20), now / 100 + k, now / 100 + k + 4); g.stroke(); } }
+    if (holeLit) { g.fillStyle = `rgba(255,255,255,${0.6 + pulse * 0.4})`; g.font = 'bold 9px "Trebuchet MS", sans-serif'; g.textAlign = 'center'; g.fillText('LIT', cx, cy + 22); }
+    const done = mission ? Math.floor(LIGHTS * mission.prog / mission.goal) : 0;
     for (let k = 0; k < LIGHTS; k++) {
-      const ang = k / LIGHTS * Math.PI * 2, on = fx.flash > 0.2 || Math.floor(now / 90) % LIGHTS === k || (score && (k + Math.floor(now / 400)) % 6 === 0);
-      g.fillStyle = on ? '#ffd23f' : '#6b3a1c'; g.beginPath(); g.arc(cx + Math.cos(ang) * 40, cy + Math.sin(ang) * 40, 3.5, 0, Math.PI * 2); g.fill();
+      const ang = k / LIGHTS * Math.PI * 2 - Math.PI / 2, on = fx.flash > 0.2 || k < done || Math.floor(now / 90) % LIGHTS === k || (!mission && score && (k + Math.floor(now / 400)) % 6 === 0);
+      g.fillStyle = k < done ? '#7dff8a' : on ? '#ffd23f' : '#6b3a1c'; g.beginPath(); g.arc(cx + Math.cos(ang) * 40, cy + Math.sin(ang) * 40, 3.5, 0, Math.PI * 2); g.fill();
     }
+    // top lane lights (the skill-shot lane blinks after a launch)
+    LANES.forEach((x, i) => {
+      const blink = i === skillLane && gt < skillUntil && Math.floor(now / 150) % 2;
+      g.fillStyle = lanes[i] ? '#ffd23f' : blink ? '#ff9df5' : '#3a2a10'; g.beginPath(); g.arc(x, 72, 5, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; g.stroke();
+    });
+    // drop targets and the rocket target
+    TARGETS.forEach((y, k) => {
+      if (targets[k]) { g.fillStyle = '#e8473c'; g.fillRect(13, y, 8, 16); g.fillStyle = '#ffd9a8'; g.fillRect(13, y + 6, 8, 4); }
+      else { g.fillStyle = '#2a1414'; g.fillRect(13, y + 12, 8, 4); }
+    });
+    g.fillStyle = rocketFlash > 0 ? '#fff6a8' : '#2fb3e8'; g.fillRect(311, ROCKET[1], 7, ROCKET[3] - ROCKET[1]);
+    g.fillStyle = '#0b2a40'; g.font = 'bold 8px sans-serif'; g.textAlign = 'center'; [..."FUEL"].forEach((ch, k) => g.fillText(ch, 314.5, ROCKET[1] + 9 + k * 8));
+    if (mult > 1) { g.fillStyle = '#ffd23f'; g.font = '900 13px "Trebuchet MS", sans-serif'; g.textAlign = 'center'; g.fillText(`${mult}X`, 165, 470); }
     if (!ball.inLane) { g.lineCap = 'round'; g.strokeStyle = '#e3e9f2'; g.lineWidth = 3; g.beginPath(); g.moveTo(gate[0], gate[1]); g.lineTo(gate[2], gate[3]); g.stroke(); }
     const py = 566 + charge * 14; // plunger: red knob on a spring
     g.strokeStyle = '#b8c0cc'; g.lineWidth = 2; g.beginPath();
@@ -1751,9 +1862,11 @@ function openPinball() {
       const hg = g.createRadialGradient(ball.x, ball.y, R * 0.5, ball.x, ball.y, R * 2.4); hg.addColorStop(0, 'rgba(140,220,255,.45)'); hg.addColorStop(1, 'rgba(140,220,255,0)');
       g.fillStyle = hg; g.beginPath(); g.arc(ball.x, ball.y, R * 2.4, 0, Math.PI * 2); g.fill();
     }
-    const bb = g.createRadialGradient(ball.x - 3, ball.y - 3, 1, ball.x, ball.y, R);
-    bb.addColorStop(0, '#ffffff'); bb.addColorStop(0.5, '#b9c2cf'); bb.addColorStop(1, '#4b5464');
-    g.fillStyle = bb; g.beginPath(); g.arc(ball.x, ball.y, R, 0, Math.PI * 2); g.fill();
+    [ball, ...extra].forEach(b => {
+      const bb = g.createRadialGradient(b.x - 3, b.y - 3, 1, b.x, b.y, R);
+      bb.addColorStop(0, '#ffffff'); bb.addColorStop(0.5, '#b9c2cf'); bb.addColorStop(1, '#4b5464');
+      g.fillStyle = bb; g.beginPath(); g.arc(b.x, b.y, held && b === held.b ? R * 0.6 : R, 0, Math.PI * 2); g.fill();
+    });
     fx.parts.forEach(q => { g.globalAlpha = Math.max(0, 1 - q.t / q.life); g.fillStyle = q.color; g.fillRect(q.x - 1.5, q.y - 1.5, 3, 3); });
     g.globalAlpha = 1;
     // charging the plunger: the lane glows brighter the harder you pull
@@ -1771,12 +1884,16 @@ function openPinball() {
     panel.ball.textContent = over ? '-' : Math.min(3, 4 - balls);
     panel.score.textContent = Math.round(fx.shown);
     panel.score.classList.toggle('up', fx.shown < score);
-    let msg = '', info = `High score ${best}`;
+    const M = mission && MISSIONS[mission.k];
+    let msg = '', info = `Rank: ${rankName(rank)}\nBonus ${mult}X · ${bonus.toLocaleString()}\n\n`
+      + (M ? `Mission:\n${M.text(mission.goal)}\n${mission.prog} / ${mission.goal} · ${Math.max(0, Math.ceil(mission.left))}s left` : over ? '' : 'Next mission\nsoon…')
+      + `\n\nHigh score ${best}`;
     if (over) msg = 'Game Over\nSpace to play again';
     else if (paused) msg = 'Game Paused\nF3 to Resume';
     else if (!inUse(W)) msg = 'Game Paused\nClick to Resume';
     else if (ball.onPlunger) msg = charging ? 'Launch!' : 'Hold Space\nto launch';
-    else msg = 'Mission in\nprogress';
+    else if (extra.length) msg = 'MULTIBALL!';
+    else msg = M ? 'Mission in\nprogress' : 'Hit things for\na new mission';
     if (panel.msg.textContent !== msg) panel.msg.textContent = msg;
     if (panel.info.textContent !== info) panel.info.textContent = info;
   }
@@ -1801,6 +1918,17 @@ function openPinball() {
       if (charging && ball.onPlunger) charge = Math.min(1, charge + dt * 1.2);
       for (let k = 0; k < 8; k++) step(dt / 8);
       bumpers.forEach(b => { b.flash = Math.max(0, b.flash - dt); });
+      if (!ball.onPlunger || extra.length) {
+        gt += dt; rocketFlash = Math.max(0, rocketFlash - dt);
+        if (mission) { mission.left -= dt; if (mission.left <= 0) { mission = null; missionNext = gt + 4; announce('MISSION FAILED', '#ff6b6b', 18, 'fail', 180); } }
+        else if (missionNext && gt >= missionNext) newMission();
+      }
+      if (held && gt >= held.until) { // fire it back out of the hole
+        const b = held.b; b.held = false; b.vx = (Math.random() - 0.5) * 300; b.vy = -620;
+        if (held.multi) { extra.push({ x: HOLE.x, y: HOLE.y, vx: -b.vx - 80, vy: -560, onPlunger: false, inLane: false, lane: -1 }); saveUntil = gt + 6; }
+        held = null; SFX.launch(0.3);
+      }
+      if (targetsBack && gt >= targetsBack) { targets = [1, 1, 1]; targetsBack = 0; }
       if (live() && ++sendTick % 2) W.push();
     }
     draw();
@@ -1809,7 +1937,11 @@ function openPinball() {
   raf = requestAnimationFrame(frame);
 
   // in a room the opener's computer runs the table; the others send flipper and plunger presses
-  const flip = (side, on) => { if (isLead(W)) flippers[side].on = on; else sendInput(W, { flip: [side, on] }); };
+  const flip = (side, on) => {
+    if (!isLead(W)) return sendInput(W, { flip: [side, on] });
+    if (on && !flippers[side].on && !ball.onPlunger) lanes = side ? [lanes[2], lanes[0], lanes[1]] : [lanes[1], lanes[2], lanes[0]]; // flippers move the lit lanes along
+    flippers[side].on = on;
+  };
   const plunge = on => {
     if (!isLead(W)) return sendInput(W, { plunge: on });
     if (on) { if (over) newGame(); else if (ball.onPlunger) charging = true; }
@@ -1818,9 +1950,16 @@ function openPinball() {
   };
   const togglePause = () => { if (!isLead(W)) return sendInput(W, { pause: 1 }); if (!over) paused = !paused; W.push(); };
   W.onInput = d => { if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); if (d.pause) togglePause(); };
-  shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging, paused }), d => {
+  shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging, paused,
+    x: extra.map(b => [Math.round(b.x), Math.round(b.y)]), lanes, targets, mult, bonus, holeLit, held: !!held, rank, rf: rocketFlash, sk: gt < skillUntil ? skillLane : -1,
+    m: mission ? [mission.k, mission.prog, mission.goal, Math.ceil(mission.left)] : null, ann }), d => {
     paused = !!d.paused;
     [ball.x, ball.y, ball.onPlunger, ball.inLane] = d.b;
+    extra = (d.x || []).map(([x, y]) => ({ x, y }));
+    ({ lanes = [0, 0, 0], targets = [1, 1, 1], mult = 1, bonus = 0, holeLit = false, rank = 0 } = d); rocketFlash = d.rf || 0; skillLane = d.sk ?? -1; skillUntil = d.sk >= 0 ? Infinity : 0;
+    held = d.held ? {} : null;
+    mission = d.m ? { k: d.m[0], prog: d.m[1], goal: d.m[2], left: d.m[3] } : null;
+    if (d.ann && (!ann || d.ann.n !== ann.n)) { ann = d.ann; popText(ann.text, 165, ann.y || 200, ann.color, ann.size); if (ann.sfx && SFX[ann.sfx]) SFX[ann.sfx](); }
     d.f.forEach((a, k) => { flippers[k].a = a; }); d.fl.forEach((v, k) => { bumpers[k].flash = v; });
     ({ score, balls, over, charge, charging } = d);
     if (over && score > best) { best = score; store.set('pinball-best', best); }

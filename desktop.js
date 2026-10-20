@@ -2398,38 +2398,16 @@ function boardGame(G) {
 // helpers for the computer players
 const shuffleBy = (arr, rnd = Math.random) => { for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } return arr; };
 
-// for the small board games: a running score for the session, and a line drawn through a winning row
-function bgTally(names) {
-  const t = { wins: [0, 0], draws: 0, n: -1, counted: false, mode: '' };
-  return {
-    update(st) { // counts each finished game once; a new game starts when the move count drops back
-      if (st.mode !== t.mode) { t.mode = st.mode; t.wins = [0, 0]; t.draws = 0; }
-      if (st.n < t.n || !st.over) t.counted = false;
-      t.n = st.n;
-      if (st.over && !t.counted) { t.counted = true; if (st.over.winner < 0) t.draws++; else t.wins[st.over.winner]++; }
-    },
-    html: (st, cls) => `<div class="bgt ${cls}">${[0, 1].map(s => `<span class="bgt-p p${s}${!st.over && st.turn === s ? ' turn' : ''}${st.over && st.over.winner === s ? ' won' : ''}"><b>${names[s]}</b><em>${t.wins[s]}</em></span>`).join(`<span class="bgt-d"><b>Draws</b><em>${t.draws}</em></span>`)}</div>`,
-  };
-}
-function bgWinLine(svg, wrap, a, b) { // a line from the middle of element a to the middle of element b, drawn in
-  const mid = e => { let x = e.offsetWidth / 2, y = e.offsetHeight / 2; for (let n = e; n && n !== wrap; n = n.offsetParent) { x += n.offsetLeft; y += n.offsetTop; } return [x, y]; };
-  const [x1, y1] = mid(a), [x2, y2] = mid(b), dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy), ext = 0.18;
-  svg.setAttribute('viewBox', `0 0 ${wrap.offsetWidth} ${wrap.offsetHeight}`);
-  svg.innerHTML = `<line x1="${x1 - dx * ext}" y1="${y1 - dy * ext}" x2="${x2 + dx * ext}" y2="${y2 + dy * ext}" style="--len:${len * (1 + 2 * ext)}"/>`;
-}
-
 /* tic-tac-toe */
 const TTT_LINES = [[0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6], [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]];
 function tttResult(b) {
   for (const l of TTT_LINES) if (b[l[0]] >= 0 && b[l[0]] === b[l[1]] && b[l[1]] === b[l[2]]) return { winner: b[l[0]], line: l };
   return b.every(v => v >= 0) ? { winner: -1 } : null;
 }
-const TTT_X = '<svg viewBox="0 0 100 100"><path d="M24 24 L76 76" pathLength="1"/><path d="M76 24 L24 76" pathLength="1"/></svg>';
-const TTT_O = '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="28" pathLength="1"/></svg>';
 function openTicTacToe() {
-  let cells = [], boardEl = null; const shown = Array(9).fill(-1), tally = bgTally(['X', 'O']);
+  let cells = [];
   return boardGame({
-    key: 'ttt', title: 'Tic-Tac-Toe', icon: I.tictactoe, w: 380, h: 500, sides: ['X', 'O'],
+    key: 'ttt', title: 'Tic-Tac-Toe', icon: I.tictactoe, w: 340, h: 420, sides: ['X', 'O'],
     init: () => ({ b: Array(9).fill(-1) }),
     legal: (g, i) => Number.isInteger(i) && g.b[i] === -1,
     apply: (g, i, side) => { g.b[i] = side; return true; },
@@ -2447,23 +2425,17 @@ function openTicTacToe() {
       return best;
     },
     mount(board, api) {
-      boardEl = board;
-      board.innerHTML = '<div class="bgt-slot"></div><div class="ttt-wrap"><div class="ttt-grid">' + '<button class="ttt-c"></button>'.repeat(9) + '</div><svg class="bg-line" aria-hidden="true"></svg></div>';
+      board.innerHTML = '<div class="ttt-grid">' + '<button class="ttt-c"></button>'.repeat(9) + '</div>';
       cells = [...board.querySelectorAll('.ttt-c')];
       cells.forEach((c, i) => c.onclick = () => api.move(i));
     },
     render(st, view) {
       const line = st.over && st.over.line || [];
-      tally.update(st); boardEl.querySelector('.bgt-slot').innerHTML = tally.html(st, 'ttt-t');
-      boardEl.querySelector('.ttt-grid').dataset.next = st.turn ? 'o' : 'x';
       cells.forEach((c, i) => {
-        const v = st.g.b[i], was = shown[i];
-        if (v !== was) { c.innerHTML = v === 0 ? TTT_X : v === 1 ? TTT_O : ''; shown[i] = v; } // new marks draw themselves in
-        c.className = 'ttt-c' + (v === 0 ? ' x' : v === 1 ? ' o' : '') + (line.includes(i) ? ' won' : '') + (v < 0 && view.mine ? ' can' : '') + (line.length && !line.includes(i) ? ' dim' : '');
-        c.setAttribute('aria-label', v < 0 ? `Square ${i + 1}, empty` : `Square ${i + 1}, ${v ? 'O' : 'X'}`);
+        const v = st.g.b[i];
+        c.textContent = v < 0 ? '' : v ? 'O' : 'X';
+        c.className = 'ttt-c' + (v === 0 ? ' x' : v === 1 ? ' o' : '') + (line.includes(i) ? ' won' : '') + (v < 0 && view.mine ? ' can' : '');
       });
-      const svg = boardEl.querySelector('.bg-line'), key = line.join(',');
-      if (svg.dataset.k !== key) { svg.dataset.k = key; if (line.length) bgWinLine(svg, boardEl.querySelector('.ttt-wrap'), cells[line[0]], cells[line[2]]); else svg.innerHTML = ''; }
     },
   });
 }
@@ -2487,9 +2459,9 @@ function c4Result(b) {
 }
 const c4Drop = (b, col) => { for (let r = C4_H - 1; r >= 0; r--) if (b[r * C4_W + col] < 0) return r * C4_W + col; return -1; };
 function openConnectFour() {
-  let holes = [], cols = [], lastDrop = -1, boardEl = null; const tally = bgTally(['Red', 'Yellow']);
+  let holes = [], cols = [], lastDrop = -1, boardEl = null;
   return boardGame({
-    key: 'c4', title: 'Connect Four', icon: I.connect4, w: 500, h: 580, sides: ['Red', 'Yellow'],
+    key: 'c4', title: 'Connect Four', icon: I.connect4, w: 470, h: 500, sides: ['Red', 'Yellow'],
     init: () => ({ b: Array(C4_W * C4_H).fill(-1), last: -1 }),
     legal: (g, col) => Number.isInteger(col) && col >= 0 && col < C4_W && c4Drop(g.b, col) >= 0,
     apply: (g, col, side) => { const i = c4Drop(g.b, col); g.b[i] = side; g.last = i; return true; },
@@ -2530,24 +2502,21 @@ function openConnectFour() {
     },
     mount(board, api) {
       boardEl = board;
-      board.innerHTML = '<div class="bgt-slot"></div><div class="c4-wrap"><div class="c4-grid">' + Array.from({ length: C4_W }, (_, c) => `<div class="c4-col" data-c="${c}">` + '<div class="c4-h"><i></i></div>'.repeat(C4_H) + '</div>').join('') + '</div><svg class="bg-line" aria-hidden="true"></svg></div>';
+      board.innerHTML = '<div class="c4-grid">' + Array.from({ length: C4_W }, (_, c) => `<div class="c4-col" data-c="${c}">` + '<div class="c4-h"><i></i></div>'.repeat(C4_H) + '</div>').join('') + '</div>';
       cols = [...board.querySelectorAll('.c4-col')];
       holes = Array(C4_W * C4_H);
       cols.forEach((col, c) => { [...col.children].forEach((h, r) => { holes[r * C4_W + c] = h; }); col.onclick = () => api.move(c); });
     },
     render(st, view) {
       const line = st.over && st.over.line || [];
-      tally.update(st); boardEl.querySelector('.bgt-slot').innerHTML = tally.html(st, 'c4-t');
       holes.forEach((h, i) => {
         const v = st.g.b[i];
-        h.className = 'c4-h' + (v === 0 ? ' red' : v === 1 ? ' yel' : '') + (line.includes(i) ? ' won' : '') + (line.length && v >= 0 && !line.includes(i) ? ' dim' : '');
+        h.className = 'c4-h' + (v === 0 ? ' red' : v === 1 ? ' yel' : '') + (line.includes(i) ? ' won' : '');
         if (i === st.g.last && i !== lastDrop) { h.style.setProperty('--fall', Math.floor(i / C4_W) + 1); h.classList.add('c4-fall'); }
       });
       lastDrop = st.g.last;
       cols.forEach((col, c) => col.classList.toggle('can', view.mine && c4Drop(st.g.b, c) >= 0));
-      boardEl.dataset.next = st.turn ? 'yel' : 'red';
-      const svg = boardEl.querySelector('.bg-line'), key = line.join(',');
-      if (svg.dataset.k !== key) { svg.dataset.k = key; if (line.length) { const ends = [...line].sort((a, b) => a - b); setTimeout(() => bgWinLine(svg, boardEl.querySelector('.c4-wrap'), holes[ends[0]], holes[ends[3]]), 340); } else svg.innerHTML = ''; }
+      boardEl.style.setProperty('--next', st.turn ? '#f5c518' : '#e23b3b');
     },
   });
 }

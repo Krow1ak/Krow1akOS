@@ -1455,6 +1455,33 @@ function openPlayer(n, folder) {
   return W;
 }
 
+// a little synth for game sound effects, with its own slider in the volume mixer; returns tone(freq, seconds, opts)
+function makeSynth(W, key, label, vol = 0.5) {
+  let actx = null, out = null;
+  mixChannel(W, key, vol, v => { if (out) out.gain.value = v; }, { label: () => label });
+  W.closeSynth = () => { if (actx) actx.close().catch(() => {}); actx = null; };
+  return function tone(f, dur, { type = 'square', vol = 0.12, slide = 0, at = 0, noise = false } = {}) {
+    try {
+      if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); out = actx.createGain(); out.connect(actx.destination); W.audio.apply(); }
+      if (actx.state === 'suspended') actx.resume();
+      const t0 = actx.currentTime + at, v = actx.createGain();
+      let src;
+      if (noise) { // a burst of noise, for thuds and crashes
+        const buf = actx.createBuffer(1, Math.ceil(actx.sampleRate * dur), actx.sampleRate), d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        src = actx.createBufferSource(); src.buffer = buf;
+        const lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = f; src.connect(lp); lp.connect(v);
+      } else {
+        src = actx.createOscillator(); src.type = type; src.frequency.setValueAtTime(f, t0);
+        if (slide) src.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t0 + dur);
+        src.connect(v);
+      }
+      v.gain.setValueAtTime(vol, t0); v.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      v.connect(out); src.start(t0); src.stop(t0 + dur + 0.02);
+    } catch {}
+  };
+}
+
 /* ---------- pinball ---------- */
 let pbWin = null;
 function openPinball() {
@@ -1483,6 +1510,25 @@ function openPinball() {
     { x: 232, y: 532, len: 58, rest: Math.PI - 0.5, up: Math.PI + 0.45, a: Math.PI - 0.5, w: 0, on: false },
   ];
   let ball, score, balls, best = store.get('pinball-best', 0), over = false, charge = 0, charging = false, raf = 0, last = 0, sendTick = 0, paused = false;
+  // effects: worked out from what changed between frames, so friends watching in a room see them too
+  const fx = { parts: [], rings: [], texts: [], trail: [], shake: 0, drain: 0, flash: 0, shown: 0, prev: null, wallT: 0 };
+  const tone = makeSynth(W, 'pinball', '3D Pinball');
+  const SFX = {
+    bumper: big => { tone(big ? 520 : 880, 0.12, { type: 'square', vol: 0.08, slide: big ? 260 : 400 }); tone(big ? 130 : 260, 0.1, { type: 'triangle', vol: 0.14 }); },
+    flip: () => tone(900, 0.04, { noise: true, vol: 0.12 }),
+    launch: p => { tone(1400, 0.25, { noise: true, vol: 0.12 }); tone(180, 0.35, { type: 'sawtooth', vol: 0.06, slide: 600 + p * 900 }); },
+    drain: () => [0, -4, -9].forEach((st, k) => tone(330 * Math.pow(2, st / 12), 0.35, { type: 'triangle', vol: 0.14, at: k * 0.18 })),
+    over: () => [0, -3, -7, -12].forEach((st, k) => tone(294 * Math.pow(2, st / 12), 0.45, { type: 'square', vol: 0.06, at: k * 0.22 })),
+    start: () => [0, 4, 7, 12].forEach((st, k) => tone(392 * Math.pow(2, st / 12), 0.16, { type: 'square', vol: 0.07, at: k * 0.08 })),
+    milestone: () => [0, 7, 12, 16, 19, 24].forEach((st, k) => tone(523 * Math.pow(2, st / 12), 0.18, { type: 'square', vol: 0.06, at: k * 0.06 })),
+    wall: v => tone(500, 0.03, { noise: true, vol: Math.min(0.1, v / 9000) }),
+  };
+  const sparks = (x, y, color, n, power = 1) => { for (let k = 0; k < n; k++) { const a = Math.random() * Math.PI * 2, v = (60 + Math.random() * 200) * power; fx.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, life: 0.35 + Math.random() * 0.4, color }); } };
+  const popText = (text, x, y, color = '#ffe66b', size = 14) => {
+    fx.texts = fx.texts.filter(o => Math.hypot(o.x - x, o.y - o.t * 26 - y) > size * 1.6); // the newest wins its spot
+    fx.texts.push({ text, x, y, color, size, t: 0 }); if (fx.texts.length > 8) fx.texts.shift();
+  };
+  const MILESTONES = [5000, 10000, 25000, 50000, 100000];
   const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true }; charge = 0; };
   function newGame() { score = 0; balls = 3; over = false; resetBall(); }
   newGame();
@@ -1509,7 +1555,7 @@ function openPinball() {
     if (ball.onPlunger) { ball.x = 335; ball.y = 562 + charge * 14; return; }
     ball.vy += G * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     if (ball.inLane && ball.x < 316) ball.inLane = false;
-    walls.forEach(s => { const c = hitSeg(...s, 2); if (c) bounce(c, 0.45); });
+    walls.forEach(s => { const c = hitSeg(...s, 2); if (c) { const vn = -(ball.vx * c.nx + ball.vy * c.ny); if (vn > 350 && performance.now() - fx.wallT > 60) { fx.wallT = performance.now(); SFX.wall(vn); } bounce(c, 0.45); } });
     if (!ball.inLane) { const c = hitSeg(...gate, 2); if (c) bounce(c, 0.45); }
     bumpers.forEach(b => {
       const dx = ball.x - b.x, dy = ball.y - b.y, d = Math.hypot(dx, dy);
@@ -1576,15 +1622,48 @@ function openPinball() {
     a.fillStyle = '#2a1414'; a.fillRect(322, 560, 26, 40); // plunger slot
   })();
   const LIGHTS = 18;
+  function detectFx() { // compare with the last frame and set off the matching effects
+    const p = fx.prev;
+    if (p) {
+      bumpers.forEach((b, k) => {
+        if (b.flash <= p.fl[k] + 0.001) return;
+        const big = b.pts > 50;
+        fx.rings.push({ x: b.x, y: b.y, r: b.r, t: 0, color: big ? '#ffe66b' : '#ffb000' });
+        sparks(b.x, b.y, big ? '#fff3a0' : '#ffc94a', big ? 10 : 6);
+        popText(`+${b.pts}`, b.x, b.y - b.r - 4, big ? '#ffe66b' : '#ffc94a', big ? 15 : 12);
+        fx.shake = Math.max(fx.shake, big ? 3 : 1.5); SFX.bumper(big);
+      });
+      flippers.forEach((f, k) => { const up = Math.abs(f.a - f.rest) > 0.05, was = Math.abs(p.f[k] - f.rest) > 0.05; if (up && !was) SFX.flip(); });
+      if (p.onPlunger && !ball.onPlunger) { SFX.launch(p.charge); sparks(335, 560, '#ff8c3a', 14, 0.8); popText('LAUNCH!', 300, 520, '#ff9d5c', 16); fx.flash = 0.3; }
+      if (!p.over && over) { SFX.over(); fx.drain = 1; fx.shake = 8; popText('GAME OVER', 165, 300, '#ff5d5d', 26); }
+      else if (balls < p.balls) { SFX.drain(); fx.drain = 1; fx.shake = 6; popText(balls === 1 ? 'LAST BALL!' : 'BALL LOST', 165, 470, '#ff6b6b', 20); }
+      if (p.over && !over) { SFX.start(); popText('MISSION START', 165, 300, '#7de3ff', 22); }
+      const m = MILESTONES.find(v => p.score < v && score >= v);
+      if (m) { SFX.milestone(); fx.flash = 1; popText(`${m.toLocaleString()} POINTS!`, 165, 230, '#8dff8a', 22); for (let k = 0; k < LIGHTS; k++) sparks(165, 395, `hsl(${k * 20},90%,65%)`, 2, 1.4); }
+    }
+    fx.prev = { fl: bumpers.map(b => b.flash), f: flippers.map(f => f.a), onPlunger: ball.onPlunger, over, balls, score, charge };
+  }
+  function stepFx(dt) {
+    fx.parts.forEach(q => { q.t += dt; q.x += q.vx * dt; q.y += q.vy * dt; q.vx *= 0.96; q.vy *= 0.96; });
+    fx.parts = fx.parts.filter(q => q.t < q.life);
+    fx.rings.forEach(r => r.t += dt); fx.rings = fx.rings.filter(r => r.t < 0.35);
+    fx.texts.forEach(x => x.t += dt); fx.texts = fx.texts.filter(x => x.t < 1);
+    fx.shake *= Math.pow(0.001, dt); fx.drain = Math.max(0, fx.drain - dt * 1.5); fx.flash = Math.max(0, fx.flash - dt * 2);
+    if (!ball.onPlunger) { fx.trail.push([ball.x, ball.y]); if (fx.trail.length > 10) fx.trail.shift(); } else fx.trail.length = 0;
+    fx.shown += (score - fx.shown) * Math.min(1, dt * 10); if (Math.abs(score - fx.shown) < 1) fx.shown = score; // the score rolls up
+  }
   function draw() {
-    const now = performance.now();
+    const now = performance.now(), dt = Math.min(0.05, (now - (fx.last || now)) / 1000); fx.last = now;
+    detectFx(); stepFx(dt);
+    g.save();
+    if (fx.shake > 0.3) g.translate((Math.random() - 0.5) * fx.shake, (Math.random() - 0.5) * fx.shake);
     g.drawImage(art, 0, 0);
     // ring of lights round a glowing hole in the middle (just for looks)
     const cx = 165, cy = 395, glow = g.createRadialGradient(cx, cy, 2, cx, cy, 30);
     glow.addColorStop(0, '#bff3ff'); glow.addColorStop(0.4, '#3cb7ff'); glow.addColorStop(1, 'rgba(20,60,160,0)');
     g.fillStyle = glow; g.beginPath(); g.arc(cx, cy, 30, 0, Math.PI * 2); g.fill();
     for (let k = 0; k < LIGHTS; k++) {
-      const ang = k / LIGHTS * Math.PI * 2, on = Math.floor(now / 90) % LIGHTS === k || (score && (k + Math.floor(now / 400)) % 6 === 0);
+      const ang = k / LIGHTS * Math.PI * 2, on = fx.flash > 0.2 || Math.floor(now / 90) % LIGHTS === k || (score && (k + Math.floor(now / 400)) % 6 === 0);
       g.fillStyle = on ? '#ffd23f' : '#6b3a1c'; g.beginPath(); g.arc(cx + Math.cos(ang) * 40, cy + Math.sin(ang) * 40, 3.5, 0, Math.PI * 2); g.fill();
     }
     if (!ball.inLane) { g.lineCap = 'round'; g.strokeStyle = '#e3e9f2'; g.lineWidth = 3; g.beginPath(); g.moveTo(gate[0], gate[1]); g.lineTo(gate[2], gate[3]); g.stroke(); }
@@ -1613,12 +1692,36 @@ function openPinball() {
       g.strokeStyle = '#f2f4f8'; g.lineWidth = 12; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(ex, ey); g.stroke();
       g.strokeStyle = '#d4282e'; g.lineWidth = 3; g.beginPath(); g.moveTo(f.x, f.y); g.lineTo(ex, ey); g.stroke();
     });
+    // bumper shock rings
+    fx.rings.forEach(r => { const k = r.t / 0.35; g.strokeStyle = r.color; g.globalAlpha = 1 - k; g.lineWidth = 3 * (1 - k) + 1; g.beginPath(); g.arc(r.x, r.y, r.r + 4 + k * 22, 0, Math.PI * 2); g.stroke(); });
+    g.globalAlpha = 1;
+    // ball trail: a fading streak, longer the faster it goes
+    const speed = Math.hypot(ball.vx || 0, ball.vy || 0);
+    fx.trail.forEach(([x, y], k) => { const a = (k + 1) / fx.trail.length; g.fillStyle = `rgba(150,210,255,${a * 0.35})`; g.beginPath(); g.arc(x, y, R * (0.4 + a * 0.5), 0, Math.PI * 2); g.fill(); });
+    if (speed > 900 || fx.trail.length > 1 && Math.hypot(fx.trail[fx.trail.length - 1][0] - fx.trail[0][0], fx.trail[fx.trail.length - 1][1] - fx.trail[0][1]) > 90) { // glow when it's flying
+      const hg = g.createRadialGradient(ball.x, ball.y, R * 0.5, ball.x, ball.y, R * 2.4); hg.addColorStop(0, 'rgba(140,220,255,.45)'); hg.addColorStop(1, 'rgba(140,220,255,0)');
+      g.fillStyle = hg; g.beginPath(); g.arc(ball.x, ball.y, R * 2.4, 0, Math.PI * 2); g.fill();
+    }
     const bb = g.createRadialGradient(ball.x - 3, ball.y - 3, 1, ball.x, ball.y, R);
     bb.addColorStop(0, '#ffffff'); bb.addColorStop(0.5, '#b9c2cf'); bb.addColorStop(1, '#4b5464');
     g.fillStyle = bb; g.beginPath(); g.arc(ball.x, ball.y, R, 0, Math.PI * 2); g.fill();
+    fx.parts.forEach(q => { g.globalAlpha = Math.max(0, 1 - q.t / q.life); g.fillStyle = q.color; g.fillRect(q.x - 1.5, q.y - 1.5, 3, 3); });
+    g.globalAlpha = 1;
+    // charging the plunger: the lane glows brighter the harder you pull
+    if (ball.onPlunger && charge > 0) { const lg = g.createLinearGradient(0, 600, 0, 380); lg.addColorStop(0, `rgba(255,120,40,${0.15 + charge * 0.45})`); lg.addColorStop(1, 'rgba(255,120,40,0)'); g.fillStyle = lg; g.fillRect(322, 380, 26, 220); }
+    if (fx.drain > 0) { const dg = g.createLinearGradient(0, TH, 0, TH - 220); dg.addColorStop(0, `rgba(255,30,30,${fx.drain * 0.6})`); dg.addColorStop(1, 'rgba(255,30,30,0)'); g.fillStyle = dg; g.fillRect(0, 0, TW, TH); }
+    if (fx.flash > 0) { g.fillStyle = `rgba(255,255,255,${fx.flash * 0.25})`; g.fillRect(0, 0, TW, TH); }
+    fx.texts.forEach(x => {
+      const a = x.t < 0.1 ? x.t / 0.1 : Math.max(0, 1 - (x.t - 0.55) / 0.45), sc = x.t < 0.1 ? 0.5 + 5 * x.t : 1;
+      g.save(); g.globalAlpha = a; g.translate(x.x, x.y - x.t * 26); g.scale(sc, sc);
+      g.font = `900 ${x.size}px "Trebuchet MS", sans-serif`; g.textAlign = 'center'; g.lineWidth = 3; g.strokeStyle = 'rgba(0,0,0,.75)'; g.strokeText(x.text, 0, 0); g.fillStyle = x.color; g.fillText(x.text, 0, 0);
+      g.restore();
+    });
+    g.restore();
     // score panel
     panel.ball.textContent = over ? '-' : Math.min(3, 4 - balls);
-    panel.score.textContent = score;
+    panel.score.textContent = Math.round(fx.shown);
+    panel.score.classList.toggle('up', fx.shown < score);
     let msg = '', info = `High score ${best}`;
     if (over) msg = 'Game Over\nSpace to play again';
     else if (paused) msg = 'Game Paused\nF3 to Resume';
@@ -1702,7 +1805,7 @@ function openPinball() {
   cv.addEventListener('pointerup', release);
   cv.addEventListener('pointercancel', release);
   cv.addEventListener('contextmenu', e => e.preventDefault());
-  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onDown); document.removeEventListener('keyup', onUp); pbWin = null; };
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onDown); document.removeEventListener('keyup', onUp); W.closeSynth(); pbWin = null; };
   pbWin = W;
   return W;
 }
@@ -3225,7 +3328,6 @@ function openPixelPaint() {
     if (d.doc) { loadDoc(d.doc); fit(false); render(); saveLater(); }
     else if (d.op === 'px' && Array.isArray(d.d)) { for (let k = 0; k + 2 < d.d.length; k += 3) { const f = frames[d.d[k]]; if (f && d.d[k + 1] < f.length) f[d.d[k + 1]] = d.d[k + 2] >>> 0; } render(); saveLater(); }
   });
-  const prevClose = W.onClose;
   W.onClose = () => { prevClose && prevClose(); flush(); store.set('pixel-doc', serialize()); clearInterval(ants); clearInterval(anim); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); pxWin = null; };
   pxWin = W;
   loadDoc(store.get('pixel-doc', null));
@@ -3411,19 +3513,7 @@ function openTetris() {
   const fx = { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, glowColor: '#fff', hit: 0, deadAt: 0 };
   const pop = (text, color = '#fff', size = 22) => { fx.texts.push({ text, color, size, t: 0 }); if (fx.texts.length > 4) fx.texts.shift(); };
   const burst = (x, y, color, n = 6, power = 1) => { for (let k = 0; k < n; k++) fx.parts.push({ x, y, vx: (Math.random() - 0.5) * 260 * power, vy: (-Math.random() * 220 - 40) * power, life: 0.5 + Math.random() * 0.5, t: 0, color, size: 2 + Math.random() * 3 }); };
-  // little synth for sound effects, with its own slider in the volume mixer
-  let actx = null, sfxOut = null;
-  mixChannel(W, 'tetris', 0.5, v => { if (sfxOut) sfxOut.gain.value = v; }, { label: () => 'Tetris' });
-  function tone(f, dur, { type = 'square', vol = 0.12, slide = 0, at = 0 } = {}) {
-    try {
-      if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); sfxOut = actx.createGain(); sfxOut.connect(actx.destination); W.audio.apply(); }
-      if (actx.state === 'suspended') actx.resume();
-      const t0 = actx.currentTime + at, o = actx.createOscillator(), v = actx.createGain();
-      o.type = type; o.frequency.setValueAtTime(f, t0); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t0 + dur);
-      v.gain.setValueAtTime(vol, t0); v.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
-      o.connect(v); v.connect(sfxOut); o.start(t0); o.stop(t0 + dur + 0.02);
-    } catch {}
-  }
+  const tone = makeSynth(W, 'tetris', 'Tetris');
   const SFX = {
     move: () => tone(420, 0.03, { vol: 0.04 }),
     rotate: () => tone(620, 0.05, { vol: 0.05, slide: 200 }),
@@ -3754,7 +3844,7 @@ function openTetris() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); press(b.dataset.k); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => release(b.dataset.k)));
   });
-  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onBind, true); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } if (actx) actx.close().catch(() => {}); ttWin = null; };
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onBind, true); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } W.closeSynth(); ttWin = null; };
   ttWin = W;
   start(); raf = requestAnimationFrame(frame);
   return W;

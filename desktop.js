@@ -3299,6 +3299,38 @@ function openTetris() {
     + '<div class="tt-help">← → move · ↓ soft drop · Space hard drop · ↑/X rotate · Z rotate back · C hold · P pause</div></div>';
   const q = sel => W.body.querySelector(sel), cv = q('.tt-c'), g = cv.getContext('2d');
   let grid, cur, bag, rnd, queue, hold, canHold, score, lines, level, over, paused, dropT, lockT, lockMoves, versus = null, junk = 0, countdown = 0, raf = 0, last = 0, best = store.get('tetris-best', 0);
+  let combo = -1, b2b = false, lastRot = false;
+  // effects: particles, flashes, pop-up words and shake; they only change how things look
+  const fx = { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, glowColor: '#fff', hit: 0, deadAt: 0 };
+  const pop = (text, color = '#fff', size = 22) => { fx.texts.push({ text, color, size, t: 0 }); if (fx.texts.length > 4) fx.texts.shift(); };
+  const burst = (x, y, color, n = 6, power = 1) => { for (let k = 0; k < n; k++) fx.parts.push({ x, y, vx: (Math.random() - 0.5) * 260 * power, vy: (-Math.random() * 220 - 40) * power, life: 0.5 + Math.random() * 0.5, t: 0, color, size: 2 + Math.random() * 3 }); };
+  // little synth for sound effects, with its own slider in the volume mixer
+  let actx = null, sfxOut = null;
+  mixChannel(W, 'tetris', 0.5, v => { if (sfxOut) sfxOut.gain.value = v; }, { label: () => 'Tetris' });
+  function tone(f, dur, { type = 'square', vol = 0.12, slide = 0, at = 0 } = {}) {
+    try {
+      if (!actx) { actx = new (window.AudioContext || window.webkitAudioContext)(); sfxOut = actx.createGain(); sfxOut.connect(actx.destination); W.audio.apply(); }
+      if (actx.state === 'suspended') actx.resume();
+      const t0 = actx.currentTime + at, o = actx.createOscillator(), v = actx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t0); if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t0 + dur);
+      v.gain.setValueAtTime(vol, t0); v.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+      o.connect(v); v.connect(sfxOut); o.start(t0); o.stop(t0 + dur + 0.02);
+    } catch {}
+  }
+  const SFX = {
+    move: () => tone(420, 0.03, { vol: 0.04 }),
+    rotate: () => tone(620, 0.05, { vol: 0.05, slide: 200 }),
+    hold: () => tone(330, 0.08, { type: 'triangle', vol: 0.1, slide: 220 }),
+    lock: () => tone(140, 0.08, { type: 'triangle', vol: 0.18, slide: -60 }),
+    drop: () => { tone(90, 0.16, { type: 'sawtooth', vol: 0.12, slide: -50 }); tone(200, 0.06, { type: 'triangle', vol: 0.12 }); },
+    clear: (n, c) => { const base = 520 * Math.pow(1.06, Math.max(0, c)); [0, 4, 7, 12].slice(0, n + 1).forEach((st, k) => tone(base * Math.pow(2, st / 12), 0.16, { type: 'square', vol: 0.07, at: k * 0.05 })); },
+    tetris: () => [0, 4, 7, 12, 16, 19, 24].forEach((st, k) => tone(523 * Math.pow(2, st / 12), 0.22, { type: 'square', vol: 0.07, at: k * 0.045 })),
+    level: () => [0, 7, 12].forEach((st, k) => tone(392 * Math.pow(2, st / 12), 0.2, { type: 'triangle', vol: 0.14, at: k * 0.09 })),
+    junk: () => { tone(110, 0.25, { type: 'sawtooth', vol: 0.12, slide: -40 }); tone(73, 0.3, { type: 'square', vol: 0.06 }); },
+    count: last => tone(last ? 880 : 440, last ? 0.3 : 0.12, { type: 'triangle', vol: 0.15 }),
+    over: () => [0, -3, -7, -12].forEach((st, k) => tone(330 * Math.pow(2, st / 12), 0.3, { type: 'triangle', vol: 0.13, at: k * 0.15 })),
+    win: () => [0, 4, 7, 12, 7, 12].forEach((st, k) => tone(523 * Math.pow(2, st / 12), 0.2, { type: 'square', vol: 0.08, at: k * 0.1 })),
+  };
   const opps = new Map(); // other players in versus: id -> { name, color, grid, score, lines, over }
   const empty = () => Array.from({ length: ROWS + HID }, () => Array(COLS).fill(''));
   function nextPiece() {
@@ -3306,46 +3338,94 @@ function openTetris() {
     return queue.shift();
   }
   function spawn(type) {
-    cur = { t: type, r: 0, x: type === 'O' ? 3 : 3, y: 0 };
+    cur = { t: type, r: 0, x: 3, y: 0 };
     if (!fits(cur.x, cur.y, cur.r)) { gameOver(); return; }
-    lockT = 0; lockMoves = 0; canHold = true;
+    lockT = 0; lockMoves = 0; canHold = true; lastRot = false;
   }
   function start(seed) {
     grid = empty(); rnd = seed != null ? seededRandom('tetris|' + seed) : Math.random; queue = []; hold = null; score = 0; lines = 0; level = 1; over = false; paused = false; dropT = 0; junk = 0;
+    combo = -1; b2b = false; Object.assign(fx, { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, hit: 0, deadAt: 0 }); won = false;
     spawn(nextPiece()); draw();
   }
   const fits = (x, y, r, t = cur.t) => ttCells(t, r).every(([cx, cy]) => { const X = x + cx, Y = y + cy; return X >= 0 && X < COLS && Y < ROWS + HID && (Y < 0 || !grid[Y][X]); });
-  const move = (dx, dy) => { if (over || paused || countdown > 0 || !fits(cur.x + dx, cur.y + dy, cur.r)) return false; cur.x += dx; cur.y += dy; if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return true; };
+  const move = (dx, dy) => { if (over || paused || countdown > 0 || !fits(cur.x + dx, cur.y + dy, cur.r)) return false; cur.x += dx; cur.y += dy; lastRot = false; if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return true; };
   function rotate(dir) {
     if (over || paused || countdown > 0 || cur.t === 'O') return;
     const to = (cur.r + dir + 4) % 4, kicks = (cur.t === 'I' ? TT_KICKS_I : TT_KICKS)[`${cur.r}${to}`];
-    for (const [kx, ky] of kicks) if (fits(cur.x + kx, cur.y - ky, to)) { cur.x += kx; cur.y -= ky; cur.r = to; if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return; }
+    for (const [kx, ky] of kicks) if (fits(cur.x + kx, cur.y - ky, to)) { cur.x += kx; cur.y -= ky; cur.r = to; lastRot = true; SFX.rotate(); if (lockT && lockMoves < 15) { lockT = 0; lockMoves++; } return; }
   }
   const ghostY = () => { let y = cur.y; while (fits(cur.x, y + 1, cur.r)) y++; return y; };
-  function hardDrop() { if (over || paused || countdown > 0) return; const y = ghostY(); score += 2 * (y - cur.y); cur.y = y; lock(); }
+  function hardDrop() {
+    if (over || paused || countdown > 0) return;
+    const y = ghostY(), cells = ttCells(cur.t, cur.r);
+    if (y !== cur.y) {
+      lastRot = false;
+      cells.forEach(([cx, cy]) => fx.trails.push({ x: cur.x + cx, y0: cur.y + cy - HID, y1: y + cy - HID, color: TT_COLORS[cur.t], t: 0 }));
+    }
+    score += 2 * (y - cur.y); cur.y = y;
+    const bottom = Math.max(...cells.map(([, cy]) => cy));
+    cells.filter(([, cy]) => cy === bottom).forEach(([cx]) => burst((cur.x + cx + 0.5) * CELL, (y + bottom + 1 - HID) * CELL, '#cfd8ff', 3, 0.5));
+    fx.shake = Math.max(fx.shake, 5); SFX.drop(); lock(true);
+  }
   function doHold() {
     if (over || paused || countdown > 0 || !canHold) return;
-    const t = cur.t; if (hold) spawn(hold); else spawn(nextPiece()); hold = t; canHold = false;
+    const t = cur.t; if (hold) spawn(hold); else spawn(nextPiece()); hold = t; canHold = false; SFX.hold();
   }
-  function lock() {
-    ttCells(cur.t, cur.r).forEach(([cx, cy]) => { const Y = cur.y + cy; if (Y >= 0) grid[Y][cur.x + cx] = cur.t; });
-    if (ttCells(cur.t, cur.r).every(([, cy]) => cur.y + cy < HID)) return gameOver(); // locked fully above the top
-    let cleared = 0;
-    for (let y = ROWS + HID - 1; y >= 0; y--) if (grid[y].every(Boolean)) { grid.splice(y, 1); grid.unshift(Array(COLS).fill('')); cleared++; y++; }
-    if (cleared) {
-      lines += cleared; score += [0, 100, 300, 500, 800][cleared] * level; level = 1 + Math.floor(lines / 10);
-      const send = [0, 0, 1, 2, 4][cleared];
-      if (versus && send) { const cancel = Math.min(junk, send); junk -= cancel; if (send - cancel) attack(send - cancel); }
-    } else if (junk) { addJunk(junk); junk = 0; }
+  // T-spin: a T that was just rotated into place with 3 of the 4 corners around its middle filled
+  const tCorners = () => [[0, 0], [2, 0], [0, 2], [2, 2]].filter(([dx, dy]) => { const X = cur.x + dx, Y = cur.y + dy; return X < 0 || X >= COLS || Y >= ROWS + HID || (Y >= 0 && grid[Y][X]); }).length;
+  const COMBO_JUNK = [0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 4, 5];
+  function lock(dropped) {
+    const cells = ttCells(cur.t, cur.r), tspin = cur.t === 'T' && lastRot && tCorners() >= 3;
+    cells.forEach(([cx, cy]) => { const Y = cur.y + cy; if (Y >= 0) grid[Y][cur.x + cx] = cur.t; });
+    if (cells.every(([, cy]) => cur.y + cy < HID)) return gameOver(); // locked fully above the top
+    const full = [];
+    for (let y = 0; y < ROWS + HID; y++) if (grid[y].every(Boolean)) full.push(y);
+    full.forEach(y => { // light the rows up and throw their blocks around before they go
+      fx.flashes.push({ y: y - HID, t: 0 });
+      grid[y].forEach((c, x) => burst((x + 0.5) * CELL, (y - HID + 0.5) * CELL, TT_COLORS[c], full.length >= 4 ? 4 : 2, full.length >= 4 ? 1.4 : 1));
+    });
+    if (!full.length) { cells.forEach(([cx, cy]) => fx.flashes.push({ x: cur.x + cx, y: cur.y + cy - HID, t: 0, cell: true })); if (!dropped) SFX.lock(); }
+    full.forEach(y => { grid.splice(y, 1); grid.unshift(Array(COLS).fill('')); });
+    const cleared = full.length, hard = cleared === 4 || (tspin && cleared > 0);
+    let send = 0;
+    if (cleared || tspin) {
+      const was = b2b, before = level;
+      let pts = (tspin ? [400, 800, 1200, 1600] : [0, 100, 300, 500, 800])[cleared];
+      send = (tspin ? [0, 2, 4, 6] : [0, 0, 1, 2, 4])[cleared];
+      if (cleared) {
+        combo++;
+        if (hard && was) { pts *= 1.5; send++; }
+        b2b = hard ? true : false;
+        pts += 50 * combo; send += COMBO_JUNK[Math.min(combo, COMBO_JUNK.length - 1)];
+      }
+      lines += cleared; score += Math.round(pts * level); level = 1 + Math.floor(lines / 10);
+      const perfect = cleared && grid.every(r => r.every(c => !c));
+      if (perfect) { score += 2000 * level; send = 10; }
+      const name = tspin ? `T-Spin ${['', 'Single', 'Double', 'Triple'][cleared]}`.trim() : ['', '', 'Double', 'Triple', 'TETRIS!'][cleared];
+      if (name) pop(name, tspin ? '#d48cff' : cleared === 4 ? '#5ff0ff' : '#fff', cleared === 4 ? 30 : 24);
+      if (hard && was && cleared) pop('Back-to-Back', '#ffd75e', 16);
+      if (combo > 0) pop(`Combo ×${combo + 1}`, '#ff9d5c', 16 + Math.min(combo, 6) * 2);
+      if (perfect) pop('PERFECT CLEAR', '#7dff8a', 26);
+      if (cleared === 4 || perfect) { fx.shake = Math.max(fx.shake, 10); fx.glow = 1; fx.glowColor = '#5ff0ff'; SFX.tetris(); }
+      else if (cleared) { fx.shake = Math.max(fx.shake, 2 + cleared * 2); fx.glow = 0.5 + cleared * 0.15; fx.glowColor = tspin ? '#d48cff' : '#ffffff'; SFX.clear(cleared, combo); }
+      else SFX.rotate();
+      if (level > before) { pop(`Level ${level}`, '#9fe870', 22); SFX.level(); }
+    } else combo = -1;
+    if (versus && send) { const cancel = Math.min(junk, send); junk -= cancel; if (send - cancel) attack(send - cancel); }
+    else if (!cleared && junk) { const n = junk; junk = 0; if (!addJunk(n)) return; }
     spawn(nextPiece()); share();
   }
-  function addJunk(n) { // rows of grey with one gap, pushed in from the bottom
+  function addJunk(n) { // rows of grey with one gap, pushed in from the bottom; returns false if that pushed you out
     const hole = Math.floor(Math.random() * COLS);
-    for (let k = 0; k < n; k++) { grid.shift(); const row = Array(COLS).fill('G'); row[hole] = ''; grid.push(row); }
-    if (!fits(cur.x, cur.y, cur.r)) { cur.y = Math.max(0, cur.y - n); if (!fits(cur.x, cur.y, cur.r)) gameOver(); }
+    let out = false;
+    for (let k = 0; k < n; k++) { if (grid[0].some(Boolean)) out = true; grid.shift(); const row = Array(COLS).fill('G'); row[hole] = ''; grid.push(row); }
+    fx.shake = Math.max(fx.shake, 4 + n * 1.5); fx.hit = 1; SFX.junk();
+    if (out) { gameOver(); return false; }
+    return true;
   }
   function gameOver() {
-    over = true;
+    if (over) return;
+    over = true; fx.deadAt = performance.now(); fx.shake = Math.max(fx.shake, 8); SFX.over();
     if (!versus && score > best) { best = score; store.set('tetris-best', best); }
     share(); draw();
   }
@@ -3355,8 +3435,9 @@ function openTetris() {
     const targets = alive(); if (!targets.length) return;
     const [id] = targets[Math.floor(Math.random() * targets.length)];
     W.push({ junk: { to: id, n, from: mp.self } });
+    pop(`${n} line${n > 1 ? 's' : ''} → ${opps.get(id).name}`, '#ff8a8a', 14);
   }
-  let shareT = 0;
+  let shareT = 0, lastCount = 0, won = false;
   function share(force) {
     if (!versus || !live()) return;
     const now = performance.now(); if (!force && now - shareT < 250 && !over) return; shareT = now;
@@ -3367,13 +3448,19 @@ function openTetris() {
     W.push({ start: round }); beginVersus(round);
   }
   function beginVersus(r) {
-    versus = r; opps.clear(); countdown = 3; start(r.seed); share(true);
+    versus = r; opps.clear(); countdown = 3; lastCount = 4; start(r.seed); share(true);
     q('.tt-note').textContent = '';
   }
   shareState(W, () => ({}), d => {
     if (d.start) beginVersus(d.start);
-    else if (d.vs && versus && d.vs.round === versus.round && d.vs.id !== mp.self) opps.set(d.vs.id, d.vs);
-    else if (d.junk && versus && d.junk.to === mp.self && !over) junk += Math.min(10, d.junk.n | 0);
+    else if (d.vs && versus && d.vs.round === versus.round && d.vs.id !== mp.self) {
+      const was = opps.get(d.vs.id); opps.set(d.vs.id, d.vs);
+      if (d.vs.over && was && !was.over) pop(`${d.vs.name} is out!`, d.vs.color, 16);
+    } else if (d.junk && versus && d.junk.to === mp.self && !over) {
+      const n = Math.min(10, d.junk.n | 0), o = opps.get(d.junk.from);
+      junk += n; fx.hit = 0.6; SFX.junk();
+      pop(`+${n} from ${o ? o.name : 'someone'}`, '#ff6b6b', 15);
+    }
   });
   q('.tt-solo').onclick = () => { versus = null; opps.clear(); countdown = 0; start(); };
   q('.tt-vs').onclick = () => startVersus();
@@ -3396,18 +3483,20 @@ function openTetris() {
     g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1;
     for (let x = 1; x < COLS; x++) { g.beginPath(); g.moveTo(x * CELL + 0.5, 0); g.lineTo(x * CELL + 0.5, ROWS * CELL); g.stroke(); }
     for (let y = 1; y < ROWS; y++) { g.beginPath(); g.moveTo(0, y * CELL + 0.5); g.lineTo(COLS * CELL, y * CELL + 0.5); g.stroke(); }
-    for (let y = HID; y < ROWS + HID; y++) for (let x = 0; x < COLS; x++) if (grid[y][x]) drawCell(g, x, y - HID, CELL, grid[y][x]);
+    const dead = over && fx.deadAt ? (performance.now() - fx.deadAt) / 40 : -1; // after a loss the stack turns grey from the bottom up
+    for (let y = HID; y < ROWS + HID; y++) for (let x = 0; x < COLS; x++) if (grid[y][x]) drawCell(g, x, y - HID, CELL, dead >= 0 && ROWS + HID - y <= dead ? 'G' : grid[y][x]);
     if (!over && cur) {
       const gy = ghostY();
       ttCells(cur.t, cur.r).forEach(([cx, cy]) => { if (gy + cy >= HID) drawCell(g, cur.x + cx, gy + cy - HID, CELL, cur.t, true); });
       ttCells(cur.t, cur.r).forEach(([cx, cy]) => { if (cur.y + cy >= HID) drawCell(g, cur.x + cx, cur.y + cy - HID, CELL, cur.t); });
     }
+    drawFx();
     if (junk) { g.fillStyle = '#ef4b4b'; g.fillRect(cv.width - 5, cv.height - Math.min(ROWS, junk) * CELL, 5, Math.min(ROWS, junk) * CELL); }
     let msg = '';
     if (countdown > 0) msg = String(Math.ceil(countdown));
     else if (versus && opps.size) { // versus: last one standing wins
       const left = alive();
-      if (!over && !left.length) msg = 'You win!';
+      if (!over && !left.length) { msg = 'You win!'; if (!won) { won = true; SFX.win(); pop('VICTORY', '#ffd75e', 30); } }
       else if (over) msg = left.length === 1 ? `${left[0][1].name} wins!` : left.length ? 'Out! Watching…' : 'Game over';
     } else if (over) msg = 'Game over';
     else if (paused) msg = 'Paused';
@@ -3428,9 +3517,45 @@ function openTetris() {
       box.append(c);
     });
   }
+  function drawFx() {
+    // hard-drop streaks
+    fx.trails.forEach(r => { const a = 1 - r.t / 0.18, top = r.y0 * CELL, h = (r.y1 - r.y0) * CELL; if (h <= 0) return; const gr = g.createLinearGradient(0, top, 0, top + h); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(1, r.color); g.globalAlpha = Math.max(0, a) * 0.5; g.fillStyle = gr; g.fillRect(r.x * CELL + 3, top, CELL - 6, h); });
+    g.globalAlpha = 1;
+    // cleared rows and freshly locked blocks flash white
+    fx.flashes.forEach(f => { const a = 1 - f.t / (f.cell ? 0.15 : 0.3); g.fillStyle = `rgba(255,255,255,${Math.max(0, a) * (f.cell ? 0.45 : 0.9)})`; if (f.cell) g.fillRect(f.x * CELL, f.y * CELL, CELL, CELL); else g.fillRect(0, f.y * CELL - (1 - a) * 6, cv.width, CELL + (1 - a) * 12); });
+    fx.parts.forEach(p => { g.globalAlpha = Math.max(0, 1 - p.t / p.life); g.fillStyle = p.color; g.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size); });
+    g.globalAlpha = 1;
+    // danger: the stack is near the top
+    const top = grid.findIndex(r => r.some(Boolean)), danger = !over && top >= 0 && top - HID < 5;
+    if (danger) { const a = 0.18 + 0.12 * Math.sin(performance.now() / 120); const gr = g.createLinearGradient(0, 0, 0, CELL * 5); gr.addColorStop(0, `rgba(255,40,40,${a})`); gr.addColorStop(1, 'rgba(255,40,40,0)'); g.fillStyle = gr; g.fillRect(0, 0, cv.width, CELL * 5); }
+    if (fx.hit > 0) { const gr = g.createLinearGradient(0, cv.height, 0, cv.height - CELL * 8); gr.addColorStop(0, `rgba(255,50,50,${fx.hit * 0.55})`); gr.addColorStop(1, 'rgba(255,50,50,0)'); g.fillStyle = gr; g.fillRect(0, 0, cv.width, cv.height); }
+    // pop-up words float up and fade
+    fx.texts.forEach((x, k) => {
+      const a = x.t < 0.15 ? x.t / 0.15 : Math.max(0, 1 - (x.t - 0.7) / 0.5), sc = x.t < 0.15 ? 0.6 + 0.4 * (x.t / 0.15) * 1.15 : 1;
+      g.save(); g.globalAlpha = a; g.translate(cv.width / 2, cv.height * 0.34 + k * 30 - x.t * 24); g.scale(sc, sc);
+      g.font = `900 ${x.size}px Segoe UI, sans-serif`; g.textAlign = 'center'; g.lineWidth = 4; g.strokeStyle = 'rgba(0,0,0,.7)'; g.strokeText(x.text, 0, 0); g.fillStyle = x.color; g.fillText(x.text, 0, 0);
+      g.restore();
+    });
+    // board edge: glows on big clears, red when in danger, tinted by level otherwise
+    const hue = (200 + (level - 1) * 37) % 360;
+    cv.style.borderColor = danger ? `rgb(${200 + 55 * Math.abs(Math.sin(performance.now() / 160)) | 0},60,60)` : `hsl(${hue},45%,${35 + fx.glow * 40}%)`;
+    cv.style.boxShadow = fx.glow > 0.02 ? `0 0 ${12 + fx.glow * 30}px ${fx.glowColor}` : danger ? '0 0 14px rgba(255,60,60,.5)' : `0 0 10px hsla(${hue},60%,50%,.25)`;
+    cv.style.transform = fx.shake > 0.3 ? `translate(${(Math.random() - 0.5) * fx.shake}px,${(Math.random() - 0.5) * fx.shake}px)` : '';
+    W.body.querySelector('.tt').style.setProperty('--tt-hue', hue);
+  }
+  function stepFx(dt) {
+    const s = dt / 1000;
+    fx.parts.forEach(p => { p.t += s; p.x += p.vx * s; p.y += p.vy * s; p.vy += 700 * s; });
+    fx.parts = fx.parts.filter(p => p.t < p.life);
+    fx.flashes.forEach(f => f.t += s); fx.flashes = fx.flashes.filter(f => f.t < 0.3);
+    fx.trails.forEach(r => r.t += s); fx.trails = fx.trails.filter(r => r.t < 0.18);
+    fx.texts.forEach(x => x.t += s); fx.texts = fx.texts.filter(x => x.t < 1.2);
+    fx.shake *= Math.pow(0.0005, s); fx.glow *= Math.pow(0.02, s); fx.hit *= Math.pow(0.03, s);
+  }
   function frame(t) {
     const dt = Math.min(100, t - last || 0); last = t;
-    if (countdown > 0) countdown -= dt / 1000;
+    stepFx(dt);
+    if (countdown > 0) { countdown -= dt / 1000; const c = Math.ceil(countdown); if (c < lastCount) { lastCount = c; SFX.count(c <= 0); if (c <= 0) pop('GO!', '#7dff8a', 30); } }
     else if (!over && !paused && (W.el.classList.contains('active') || versus)) { // versus doesn't pause when you click away
       const speed = Math.max(30, Math.pow(0.8 - (level - 1) * 0.007, level - 1) * 1000) / (keys.soft ? 20 : 1);
       dropT += dt;
@@ -3444,7 +3569,7 @@ function openTetris() {
   }
   const keys = { left: null, right: null, soft: false };
   const press = k => {
-    if (k === 'left' || k === 'right') { move(k === 'left' ? -1 : 1, 0); keys[k] = { t: 0, next: 160 }; }
+    if (k === 'left' || k === 'right') { if (move(k === 'left' ? -1 : 1, 0)) SFX.move(); keys[k] = { t: 0, next: 160 }; }
     else if (k === 'soft') keys.soft = true;
     else if (k === 'rot') rotate(1); else if (k === 'rotb') rotate(-1);
     else if (k === 'drop') hardDrop(); else if (k === 'hold') doHold();
@@ -3462,7 +3587,7 @@ function openTetris() {
     b.addEventListener('pointerdown', e => { e.preventDefault(); press(b.dataset.k); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, () => release(b.dataset.k)));
   });
-  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } ttWin = null; };
+  W.onClose = () => { cancelAnimationFrame(raf); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); if (versus && !over) { over = true; share(true); } if (actx) actx.close().catch(() => {}); ttWin = null; };
   ttWin = W;
   start(); raf = requestAnimationFrame(frame);
   return W;

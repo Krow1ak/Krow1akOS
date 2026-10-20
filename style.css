@@ -677,7 +677,7 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .ah-help{flex:none;color:#9fb3c8;font-size:11px;text-align:center}
 
 /* tetris */
-.tt{flex:1;min-height:0;display:grid;grid-template-columns:auto auto auto;grid-template-rows:minmax(0,1fr) auto auto;justify-content:center;gap:10px;padding:10px;background:#1a1d29;color:#dfe6ff;user-select:none;-webkit-user-select:none}
+.tt{--tt-hue:200;flex:1;min-height:0;display:grid;grid-template-columns:auto auto auto;grid-template-rows:minmax(0,1fr) auto auto;justify-content:center;gap:10px;padding:10px;background:radial-gradient(ellipse at 50% 40%,hsl(var(--tt-hue),35%,17%),#151824 70%);color:#dfe6ff;user-select:none;-webkit-user-select:none}
 .tt h4{margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#8f9bc7}
 .tt-side{display:flex;flex-direction:column;gap:8px;width:120px;min-height:0;overflow:auto}
 .tt-side canvas{background:#10131c;border-radius:4px;align-self:center}
@@ -686,7 +686,7 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .tt-stats small{display:block;font-size:10px;color:#8f9bc7;text-transform:uppercase;letter-spacing:1px}.tt-stats b{font-size:18px}
 .tt-btns{display:flex;flex-direction:column;gap:6px;margin-top:auto}
 .tt-mid{min-height:0;display:grid;place-items:center}
-.tt-c{height:100%;max-height:520px;max-width:100%;border:2px solid #3a4160;border-radius:4px}
+.tt-c{height:100%;max-height:520px;max-width:100%;border:2px solid #3a4160;border-radius:4px;transition:border-color .3s}
 .tt-opp{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}.tt-opp span{font-size:11px;font-weight:600}.tt-opp.out{opacity:.45}
 .tt-opp canvas{width:60px;height:120px;border:1px solid #3a4160}
 .tt-opp span{max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

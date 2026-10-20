@@ -1185,6 +1185,20 @@ function embedUrl(url) {
   if (m) return `https://www.youtube.com/embed/${m[1]}?enablejsapi=1&origin=${encodeURIComponent(location.origin)}`; // the API lets a room share play/pause
   return url;
 }
+// Spotify's embed API: lets the page play, pause, seek and follow which song is on
+let spApi = null;
+function spotifyApi() {
+  return spApi ||= new Promise((ok, fail) => {
+    if (window.SpotifyIframeApi) return ok(window.SpotifyIframeApi);
+    window.onSpotifyIframeApiReady = api => ok(api);
+    const sc = document.createElement('script'); sc.src = 'https://open.spotify.com/embed/iframe-api/v1'; sc.async = true;
+    sc.onerror = () => { spApi = null; fail(new Error('spotify api')); };
+    document.head.append(sc);
+    setTimeout(() => fail(new Error('spotify api timeout')), 10000);
+  });
+}
+const spotifyUri = url => { const m = url.match(/^https:\/\/open\.spotify\.com\/embed\/(\w+)\/(\w+)/); return m ? `spotify:${m[1]}:${m[2]}` : ''; };
+
 function openBrowser(start) {
   const W = makeWin({ title: 'Internet', icon: I.browser, w: 900, h: 600 });
   const nav = el(`<div class="nav"><button class="nb bk" aria-label="Back">${img(U.back, '')}</button><button class="nb fw" aria-label="Forward">${img(U.forward, '')}</button>`
@@ -1193,13 +1207,14 @@ function openBrowser(start) {
     + '<button class="nb wb-out" aria-label="Open in a new tab" title="Open in a new tab">↗</button></div>');
   W.el.insertBefore(nav, W.body);
   W.body.innerHTML = '<div class="tools wb-marks"></div><div class="wb-page"><iframe class="wb-frame" referrerpolicy="no-referrer-when-downgrade" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" allowfullscreen></iframe><div class="wb-note" hidden></div>'
+    + '<div class="wb-sp" hidden><div class="wb-sp-host"></div><div class="wb-sp-bar"></div></div>'
     + `<div class="wb-start" hidden><div class="wb-logo"></div><form class="wb-sform"><input class="wb-sq" type="search" spellcheck="false" autocomplete="off" placeholder="Search Google or type a web address" aria-label="Search"><button class="okbtn">Search</button></form>`
     + '<div class="wb-tiles"></div><p class="wb-tip">In a multiplayer room, pages opened from here or the address bar open for everyone. Clicks, typing and scrolling inside other websites stay private to each person (browsers don\'t let one site watch another), so search from this page or the address bar to search together.</p></div></div>';
   const q = sel => W.el.querySelector(sel);
   const frame = q('.wb-frame'), note = q('.wb-note'), urlIn = q('.wb-url');
   const st = { hist: [], i: -1 };
   let pausedMusic = false;
-  W.onClose = () => { if (pausedMusic) setMusic(true); removeEventListener('message', onYt); clearInterval(ytListen); };
+  W.onClose = () => { if (pausedMusic) setMusic(true); removeEventListener('message', onYt); clearInterval(ytListen); clearInterval(spTimer); if (sp.ctl) try { sp.ctl.destroy(); } catch {} };
 
   // YouTube: in a room, play, pause and jumps in the video are shared. The embedded player can't be
   // reached directly (it's another site), but it answers YouTube's own embed messages.
@@ -1227,7 +1242,7 @@ function openBrowser(start) {
   });
   // mixer channel: YouTube's volume is set through its embed messages; Spotify's player can't be reached
   mixChannel(W, 'web', 1, lv => { if (yt && yt.ready) ytSend('setVolume', [Math.round(lv * 100)]); }, {
-    active: () => !!ytId() || /^https:\/\/open\.spotify\.com\/embed\//.test(frame.src),
+    active: () => !!ytId() || /^https:\/\/open\.spotify\.com\/embed\//.test(frame.src) || !spBox.hidden,
     label: () => ytId() ? 'YouTube' : 'Spotify',
   });
   Object.defineProperty(W.audio, 'locked', { get: () => ytId() ? '' : "Use Spotify's own volume" });
@@ -1252,11 +1267,89 @@ function openBrowser(start) {
   }
   addEventListener('message', onYt);
 
+  // Spotify: in a room, the song, play/pause and jumps are shared. Spotify's embed API reports what's
+  // playing; the last person to press something leads. Everyone hears it through their own Spotify
+  // (full songs when logged in to Spotify in this browser, 30-second previews otherwise).
+  const spBox = q('.wb-sp'), spBar = q('.wb-sp-bar');
+  const sp = { ctl: null, ready: false, uri: '', track: '', paused: true, t: 0, at: 0, want: null, after: null, waitPlay: false, target: null, remote: null, failed: false };
+  const spNow = () => sp.t + (sp.paused ? 0 : (performance.now() - sp.at) / 1000);
+  const spState = () => sp.ready && sp.uri && !spBox.hidden ? { u: sp.uri, tr: sp.track, p: sp.paused, t: spNow() } : null;
+  const spPush = () => { const d = live() && spState(); if (d) W.push({ sp: d }); };
+  function spShow(url) { // returns false when the API can't be used, so the plain player is shown instead
+    if (sp.failed) return false;
+    const uri = spotifyUri(url);
+    frame.hidden = true; frame.removeAttribute('src'); spBox.hidden = false;
+    if (sp.uri === uri && sp.ctl) return true;
+    sp.uri = uri; sp.track = ''; sp.ready = false;
+    if (sp.ctl) { sp.ctl.loadUri(uri); setTimeout(() => spReady(uri), 2500); return true; }
+    const host = document.createElement('div'); q('.wb-sp-host').replaceChildren(host);
+    spotifyApi().then(api => api.createController(host, { uri, width: '100%', height: '100%' }, ctl => {
+      sp.ctl = ctl;
+      ctl.addListener('ready', () => spReady(sp.uri));
+      ctl.addListener('playback_update', e => onSp(e.data || {}));
+    })).catch(() => { // no API (blocked or offline): fall back to the plain player, without sharing
+      sp.failed = true; spBox.hidden = true; const e = st.hist[st.i]; if (e && e.url && /open\.spotify\.com/.test(embedUrl(e.url))) { frame.hidden = false; frame.src = embedUrl(e.url); }
+    });
+    return true;
+  }
+  function spReady(uri) { // the player has loaded: run whatever was waiting for it
+    if (uri !== sp.uri) return;
+    sp.ready = true;
+    if (sp.after) { const f = sp.after; sp.after = null; f(); }
+    else if (sp.want) { const d = sp.want; sp.want = null; applySp(d); }
+  }
+  function onSp(d) {
+    if (!sp.ready) spReady(sp.uri);
+    const pos = (d.position || 0) / 1000, paused = !!d.isPaused && !d.isBuffering, track = d.playingURI || sp.track;
+    const jumped = !paused && !sp.paused && Math.abs(pos - spNow()) > 3, changed = (sp.track && track !== sp.track) || paused !== sp.paused;
+    const joining = sp.waitPlay && !paused && sp.paused; // pressed play to join a song the room is already playing
+    sp.t = pos; sp.at = performance.now(); sp.paused = paused; sp.track = track;
+    if (!paused) sp.waitPlay = false;
+    if (joining && sp.remote) { const r = sp.remote, t = r.d.t + (performance.now() - r.got) / 1000; if (Math.abs(t - pos) > 2) sp.ctl.seek(t); sp.target = { tr: track, p: false, until: performance.now() + 2500 }; spStatus(); return; }
+    // our own catching up shows up here too: only pass on changes that someone made in this player
+    const tg = sp.target && performance.now() < sp.target.until ? sp.target : null;
+    const echo = tg && paused === tg.p && (!tg.tr || track === tg.tr);
+    if ((changed || jumped) && !echo && !sp.after) spPush(); // (sp.after: still loading a song someone else picked)
+    spStatus();
+  }
+  function applySp(d) {
+    if (!d || !d.u) return;
+    if (!sp.ctl || !sp.ready || d.u !== sp.uri) { sp.want = d; return; }
+    const got = performance.now();
+    sp.remote = { d, got }; sp.target = { tr: d.tr, p: d.p, until: got + 3000 }; // what follows is us catching up
+    const catchUp = () => {
+      const t = d.t + (d.p ? 0 : (performance.now() - got) / 1000);
+      if (Math.abs(spNow() - t) > 2) sp.ctl.seek(Math.max(0, t));
+      if (d.p) { if (!sp.paused) sp.ctl.pause(); }
+      else if (sp.paused) { sp.ctl.resume(); sp.waitPlay = true; setTimeout(spStatus, 2500); }
+    };
+    if (d.tr && d.tr !== sp.track && d.tr !== d.u) { // a different song: load it, then jump to the same spot
+      sp.track = d.tr; sp.paused = true; sp.t = 0; sp.after = catchUp; sp.ctl.loadUri(d.tr); // a song starts out paused
+      setTimeout(() => { if (sp.after === catchUp) { sp.after = null; catchUp(); } }, 2000);
+    } else catchUp();
+  }
+  function spStatus() {
+    if (spBox.hidden) return;
+    const behind = sp.waitPlay && sp.paused && (!sp.target || performance.now() > sp.target.until - 1000);
+    spBar.textContent = !live() ? 'Open a multiplayer room to listen together.'
+      : behind ? '▶ Press play in the player once to join the music (your browser needs one click first).'
+      : '🎧 Listening together: songs, play/pause and skipping are shared with the room.';
+    spBar.classList.toggle('warn', !!behind);
+  }
+  const spTimer = setInterval(spStatus, 1500);
+  const spHide = () => { if (spBox.hidden) return; spBox.hidden = true; if (sp.ctl && !sp.paused) sp.ctl.pause(); };
+
   function show(entry) {
     urlIn.value = entry.url || '';
     q('.wb-start').hidden = !entry.start;
+    const spotify = !entry.start && !entry.note && /^https:\/\/open\.spotify\.com\/embed\//.test(embedUrl(entry.url || ''));
+    if (!spotify) spHide();
     if (entry.start) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = true; yt = null; q('.wb-sq').value = ''; }
     else if (entry.note) { frame.hidden = true; frame.removeAttribute('src'); note.hidden = false; note.textContent = entry.note; }
+    else if (spotify && spShow(embedUrl(entry.url))) {
+      note.hidden = true; yt = null; clearInterval(ytListen); spStatus();
+      if (!pausedMusic) { pausedMusic = true; setMusic(false); }
+    }
     else {
       note.hidden = true; frame.hidden = false; yt = null; clearInterval(ytListen); frame.src = embedUrl(entry.url);
       if (frame.src !== entry.url && !pausedMusic) { pausedMusic = true; setMusic(false); } // a player: don't play over it
@@ -1298,10 +1391,11 @@ function openBrowser(start) {
     marks.append(btn);
   });
   if (!marks.children.length) marks.remove();
-  shareState(W, () => ({ e: st.hist[st.i], yt: yt && yt.ready ? { v: ytId(), p: yt.state !== 1, t: ytNow() } : null }), d => {
+  shareState(W, () => ({ e: st.hist[st.i], yt: yt && yt.ready ? { v: ytId(), p: yt.state !== 1, t: ytNow() } : null, sp: spState() }), d => {
     const cur = st.hist[st.i];
     if (d.e && !(cur && cur.url === d.e.url && cur.note === d.e.note && !!cur.start === !!d.e.start)) go(d.e);
     if (d.yt) applyYt(d.yt);
+    if (d.sp) applySp(d.sp);
   });
   if (start) goUrl(start, ''); else goHome();
   return W;

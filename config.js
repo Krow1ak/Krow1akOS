@@ -163,6 +163,9 @@ const DATES_FILE = 'content/dates.txt';
    bookmarks: buttons under the address bar, in order. url '' = not set up yet.
    Spotify / YouTube: paste the normal link (open.spotify.com/playlist/...,
      youtube.com/watch?v=...) and it opens as the embedded player.
+   In a multiplayer room, YouTube and Spotify play in sync for everyone. For Spotify, each person
+     hears it through their own account: full songs if they're logged in to Spotify in that
+     browser, 30-second previews if not.
    Lots of big sites (YouTube's homepage, Discord, Instagram...) refuse to show
    inside another page; the ↗ button opens the current page in a real tab instead. */
 const BROWSER = {

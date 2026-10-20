@@ -4310,12 +4310,28 @@ function pickRoomClock() { // the clock of whoever has been in the room longest
   tick();
 }
 
+// can this browser make direct connections at all? 'ok', 'udp' (only works on the same wifi) or 'off' (WebRTC blocked)
+let rtcCheck = null, rtcResult = '';
+function checkRtc() {
+  return rtcCheck ||= new Promise(done => {
+    if (typeof RTCPeerConnection !== 'function') return done('off');
+    let pc, seen = { host: 0, srflx: 0, relay: 0 }, end = () => { clearTimeout(t); try { pc.close(); } catch {} done(seen.srflx || seen.relay ? 'ok' : seen.host ? 'udp' : 'off'); };
+    const t = setTimeout(end, 6000);
+    try {
+      pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }, ...(MULTIPLAYER.turn || [])] });
+      pc.createDataChannel('x');
+      pc.onicecandidate = e => { if (!e.candidate) return end(); const m = / typ (\w+)/.exec(e.candidate.candidate); if (m && m[1] in seen) seen[m[1]]++; };
+      pc.createOffer().then(o => pc.setLocalDescription(o)).catch(end);
+    } catch { end(); }
+  }).then(r => rtcResult = r);
+}
+
 async function joinRoom(code) {
   if (room) await leaveRoom();
   roomCode = code.toLowerCase().replace(/[^\w-]/g, '').slice(0, 32); if (!roomCode) return;
   try { mpLib ||= await import('./assets/vendor/trystero.js'); }
   catch { toast("Couldn't load multiplayer. Open the site from a web server, not straight from a file."); roomCode = ''; return; }
-  since = Date.now(); synced = false; mpError = '';
+  since = Date.now(); synced = false; mpError = ''; checkRtc().then(() => refreshMp());
   const config = { appId: `krowos-${SITE_NAME}`, password: roomCode };
   // our list plus every relay the library knows: both people use the same list, so any one that works is enough
   const urls = [...(MULTIPLAYER.relays || []), ...(MULTIPLAYER.moreRelays !== false && mpLib.defaultRelayUrls || [])].map(u => u.includes('://') ? u : 'wss://' + u);
@@ -4336,7 +4352,8 @@ async function joinRoom(code) {
 async function leaveRoom() {
   const r = room; room = null; mp.send = null; roomCode = '';
   mp.peers.forEach(p => { p.cur.remove(); if (p.box) p.box.remove(); }); mp.peers.clear(); paintSel();
-  setIcons(store.get('desktop-pos', {})); // back to your own icon layout chatLog.length = 0; unread = 0; pickRoomClock();
+  setIcons(store.get('desktop-pos', {})); // back to your own icon layout
+  chatLog.length = 0; unread = 0; pickRoomClock();
   history.replaceState(null, '', location.pathname + location.search);
   refreshMp();
   if (r) await r.leave().catch(() => {});
@@ -4493,7 +4510,11 @@ function openMpPanel() {
     const box = q('.mp-status'); if (!box || !room) return;
     const socks = Object.values(mpLib.getRelaySockets ? mpLib.getRelaySockets() : {}), up = socks.filter(ws => ws && ws.readyState === 1).length;
     let text = `Helper servers reachable: ${up} of ${socks.length}`, bad = !up;
-    if (mpError) {
+    if (rtcResult === 'ok') text += ' · Direct connections: OK';
+    if (mp.peers.size) {} // connected to someone, so nothing to warn about
+    else if (rtcResult === 'off') { bad = true; text += ' · This browser is blocking direct connections (WebRTC). Turn off the VPN, Brave Shields, or ad blocker WebRTC setting for this site, or try Chrome/Edge.'; }
+    else if (rtcResult === 'udp') { bad = true; text += ' · Your network blocks direct connections to other networks (common on school/work wifi, some VPNs and hotspots). Try another network, or add a TURN server (see MULTIPLAYER in config.js).'; }
+    else if (mpError) {
       bad = true;
       text += /SDP|TURN/i.test(mpError) ? ' · Found someone, but one of your networks blocked the direct connection. A TURN server fixes this (see MULTIPLAYER in config.js).' : ` · ${mpError}`;
     } else if (!up) text += ' · Your network or an ad blocker may be blocking them.';

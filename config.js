@@ -142,9 +142,11 @@ const SOUND = {
    enabled: false hides the button.
    relays: free public "Nostr" servers that only help browsers find each other (no game data
      goes through them). More of them = more likely to connect. Any wss:// Nostr relay works.
-   turn: only needed if people on strict networks (school, work) can't connect. Get a free
-     TURN server (e.g. from metered.ca) and put it here:
-     [{ urls: 'turn:example.com:3478', username: '...', credential: '...' }] */
+   turn: only needed if someone can't connect and their Multiplayer window says their network
+     blocks direct connections (school/work wifi, some VPNs, phone hotspots). A TURN server passes
+     the traffic along for them. Free ones: make an account on metered.ca (or expressturn.com),
+     create a TURN app, and paste the server list it shows you here, like:
+     [{ urls: 'turn:example.com:443?transport=tcp', username: '...', credential: '...' }] */
 const MULTIPLAYER = {
   enabled: true,
   relays: ['relay.damus.io', 'nos.lol', 'relay.primal.net', 'nostr.mom', 'relay.snort.social', 'offchain.pub', 'relay.nostr.net', 'nostr.oxtr.dev'],

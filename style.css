@@ -650,7 +650,7 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .wb-tip{max-width:520px;margin:auto 0 0;font-size:11px;color:#70757a;text-align:center;line-height:1.5}
 
 /* volume mixer */
-.mx{display:flex;align-items:stretch;gap:2px;padding:10px 6px;background:linear-gradient(#fff,#f1f6fb);border:1px solid #5d7896;border-radius:4px;max-width:calc(100 * var(--vw) - 24px);overflow-x:auto}
+#volpop .mx{display:flex;align-items:stretch;gap:2px;padding:10px 6px;background:linear-gradient(#fff,#f1f6fb);border:1px solid #5d7896;border-radius:4px;max-width:calc(100 * var(--vw) - 24px);overflow-x:auto}
 .mx-ch{width:76px;flex:none;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0 3px}
 .mx-ch.master{border-right:1px solid #d5dfea;padding-right:10px;margin-right:6px}
 .mx-ic{width:28px;height:28px;object-fit:contain}

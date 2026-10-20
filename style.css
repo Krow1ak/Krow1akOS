@@ -842,3 +842,10 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .rk-watch{display:flex;gap:6px;margin-left:auto}
 .rk-watch button{padding:4px 10px;border:1px solid rgba(127,156,255,.5);border-radius:12px;background:rgba(127,156,255,.15);color:#fff;font:600 11px var(--font-ui);cursor:pointer}
 .rk-watch button:hover{background:rgba(127,156,255,.3)}
+/* multiplayer: ping bars */
+.mp-ping{display:inline-flex;align-items:flex-end;gap:1px;height:12px;margin-left:auto}
+.mp-ping b{width:3px;border-radius:1px;background:#c9d2de}
+.mp-ping b:nth-child(1){height:4px}.mp-ping b:nth-child(2){height:6px}.mp-ping b:nth-child(3){height:9px}.mp-ping b:nth-child(4){height:12px}
+.mp-ping.l4 b.on{background:#2fa84f}.mp-ping.l3 b.on{background:#7cbf2f}.mp-ping.l2 b.on{background:#e0a400}.mp-ping.l1 b.on{background:#d33}
+.mp-ms{min-width:44px;text-align:right;font-size:11px;color:var(--ink-soft,#666);font-variant-numeric:tabular-nums}
+.mp-turn{padding:0 5px;border-radius:6px;background:#fdf0d5;color:#8a5a00;border:1px solid #e8c77a;font-size:10px;font-weight:700}

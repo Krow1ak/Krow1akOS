@@ -306,7 +306,7 @@ function focusTop() {
 /* ---------- multiplayer: shared windows ---------- */
 // Every window opened from a file or app gets a shared id (sid). While in a room, opening, moving,
 // focusing, minimizing, maximizing and closing it is sent to the others, and apps send their state.
-const mp = { self: Math.random().toString(36).slice(2, 10), send: null, remote: false, incoming: null, peers: new Map() };
+const mp = { self: Math.random().toString(36).slice(2, 10), send: null, remote: false, incoming: null, peers: new Map(), relayed: new Set() };
 const live = () => !!mp.send;
 const mpSend = (m, to) => { if (mp.send && !mp.remote) mp.send(m, to); };
 function asRemote(fn) { const was = mp.remote; mp.remote = true; try { return fn(); } finally { mp.remote = was; } }
@@ -324,7 +324,7 @@ function track(spec, W) {
 // apps call this to take part: get() returns their state, set() shows a state sent by someone else
 function shareState(W, get, set) {
   W.getState = get; W.setState = d => asRemote(() => set(d));
-  W.push = (d = get()) => { if (W.sid) mpSend({ t: 'app', sid: W.sid, d }); };
+  W.push = d => { if (W.sid) mpSend(d === undefined ? { t: 'app', sid: W.sid, d: get(), lw: 1 } : { t: 'app', sid: W.sid, d }); }; // lw: a whole snapshot, a newer one replaces it
 }
 // games that run on one computer (Snake, Pinball): the opener runs it, the others send their keys
 function leaderOf(W) { // the opener, or whoever is first by id once the opener has left
@@ -5174,6 +5174,7 @@ function connectionReport() {
     `Direct connections: ${{ ok: 'OK', udp: 'only on the same network (blocked to the outside)', off: 'blocked by the browser', '': 'still checking' }[rtcResult]}`
       + ` · found ${s.host || 0} local, ${s.srflx || 0} public, ${s.relay || 0} TURN addresses${s.protos && s.protos.length ? ' over ' + s.protos.join('/') : ''}`,
     `TURN server set up: ${MULTIPLAYER.turn ? 'yes' : 'no'}`,
+    ...[...mp.peers.values()].map(p => `  ${p.name}: ${p.link === 'turn' ? 'through TURN' : p.link === 'direct' ? 'direct' : 'checking'}${p.ping != null ? ` · ${p.ping} ms` : ''}`),
     `Error from the connection library: ${mpError || 'none'}`,
     `Helper servers: ${Object.values(socks).filter(ws => ws && ws.readyState === 1).length} of ${Object.keys(socks).length} open`,
     ...relays,
@@ -5194,18 +5195,67 @@ async function joinRoom(code) {
   if (MULTIPLAYER.turn) config.turnConfig = MULTIPLAYER.turn;
   room = mpLib.joinRoom(config, roomCode, { onJoinError: e => { mpError = e.error || String(e); refreshMp(); } });
   const action = room.makeAction('m');
-  mp.send = (m, to) => { action.send(m, to ? { target: to } : undefined).catch(() => {}); };
+  const raw = (m, to) => { action.send(m, to ? { target: to } : undefined).catch(() => {}); };
+  // over TURN (relayed) connections, mouse moves and whole-game snapshots go out less often to save the
+  // free allowance: the newest one waits for its turn and older ones in between are skipped
+  const slow = new Map(); // peerId -> { key -> { at, pending, timer } }
+  const RELAY_GAP = { cur: 100, app: 66 };
+  const viaRelay = (m, id) => {
+    const key = m.t === 'cur' ? 'cur' : m.t === 'app' && m.lw ? 'app:' + m.sid : null;
+    if (!key) return raw(m, id);
+    const per = slow.get(id) || slow.set(id, new Map()).get(id), s = per.get(key) || per.set(key, { at: 0, pending: null, timer: 0 }).get(key);
+    const gap = RELAY_GAP[m.t === 'cur' ? 'cur' : 'app'], now = performance.now();
+    if (now - s.at >= gap && !s.timer) { s.at = now; return raw(m, id); }
+    s.pending = m;
+    if (!s.timer) s.timer = setTimeout(() => { s.timer = 0; s.at = performance.now(); if (s.pending && mp.peers.has(id)) raw(s.pending, id); s.pending = null; }, Math.max(0, gap - (now - s.at)));
+  };
+  mp.send = (m, to) => {
+    if (to) return mp.relayed.has(to) ? viaRelay(m, to) : raw(m, to);
+    if (!mp.relayed.size) return raw(m);
+    mp.peers.forEach((p, id) => mp.relayed.has(id) ? viaRelay(m, id) : raw(m, id));
+  };
   action.onMessage = (m, { peerId }) => receive(m, peerId);
-  room.onPeerJoin = peerId => hello(peerId);
+  room.onPeerJoin = peerId => { hello(peerId); setTimeout(checkLinks, 1500); };
   room.onPeerLeave = peerId => {
     const p = mp.peers.get(peerId); if (!p) return;
-    p.cur.remove(); if (p.box) p.box.remove(); mp.peers.delete(peerId); paintSel(); paintFocus(); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
+    p.cur.remove(); if (p.box) p.box.remove(); mp.peers.delete(peerId); mp.relayed.delete(peerId); paintSel(); paintFocus(); pickRoomClock(); toast(`${p.name} left`); addChat({ sys: true, text: `${p.name} left` }); refreshMp();
   };
   history.replaceState(null, '', '#room=' + roomCode);
   refreshMp();
 }
+// every 10 s: how long a message takes to come back from each person, and whether the connection is
+// direct or goes through the TURN server
+async function checkLinks() {
+  if (!room) return;
+  mpSend({ t: 'ping', ts: performance.now() });
+  let pcs = {}; try { pcs = room.getPeers ? room.getPeers() : {}; } catch {}
+  await Promise.all(Object.entries(pcs).map(async ([id, pc]) => {
+    const p = mp.peers.get(id); if (!pc || !pc.getStats) return;
+    try {
+      const stats = await pc.getStats(), all = [...stats.values()];
+      const tr = all.find(x => x.type === 'transport' && x.selectedCandidatePairId);
+      const pair = tr ? stats.get(tr.selectedCandidatePairId) : all.find(x => x.type === 'candidate-pair' && x.nominated && x.state === 'succeeded');
+      if (!pair) return;
+      const types = [stats.get(pair.localCandidateId), stats.get(pair.remoteCandidateId)].map(c => c && c.candidateType);
+      const relay = types.includes('relay');
+      if (relay) mp.relayed.add(id); else mp.relayed.delete(id);
+      if (p) p.link = relay ? 'turn' : 'direct';
+    } catch {}
+  }));
+  [...mp.relayed].forEach(id => { if (!mp.peers.has(id)) mp.relayed.delete(id); });
+  showPings();
+}
+setInterval(checkLinks, 10000);
+const pingBars = p => {
+  const ms = p.ping, lvl = ms == null ? 0 : ms < 80 ? 4 : ms < 150 ? 3 : ms < 250 ? 2 : 1;
+  const tip = ms == null ? 'Measuring…' : `${ms} ms${p.link === 'turn' ? ' · through the TURN server' : p.link === 'direct' ? ' · direct connection' : ''}`;
+  return `<span class="mp-ping l${lvl}" title="${tip}">${[1, 2, 3, 4].map(k => `<b class="${k <= lvl ? 'on' : ''}"></b>`).join('')}</span>`
+    + `<span class="mp-ms">${ms == null ? '' : ms + ' ms'}</span>${p.link === 'turn' ? '<span class="mp-turn" title="This connection goes through the TURN server">TURN</span>' : ''}`;
+};
+function showPings() { if (mpPanel && mpPanel.people) mpPanel.people(); }
+
 async function leaveRoom() {
-  const r = room; room = null; mp.send = null; roomCode = '';
+  const r = room; room = null; mp.send = null; roomCode = ''; mp.relayed.clear();
   mp.peers.forEach(p => { p.cur.remove(); if (p.box) p.box.remove(); }); mp.peers.clear(); paintSel();
   setIcons(store.get('desktop-pos', {})); // back to your own icon layout
   chatLog.length = 0; unread = 0; pickRoomClock();
@@ -5229,7 +5279,9 @@ function receive(m, from) {
     if (!known && m.since > since) mpSend({ t: 'snap', since, icons: iconPos, chat: chatLog.slice(-50), wins: [...wins].filter(w => w.sid).sort((a, b) => a.el.style.zIndex - b.el.style.zIndex).map(winInfo) }, from);
     pickRoomClock(); refreshMp(); return;
   }
+  if (m.t === 'ping') return mpSend({ t: 'pong', ts: m.ts }, from);
   if (!p) return;
+  if (m.t === 'pong') { p.ping = Math.round(performance.now() - m.ts); return showPings(); }
   if (m.t === 'in') { if (W && W.onInput && isLead(W)) W.onInput(m.d, p.id); return; }
   if (m.t === 'chat') {
     const text = String(m.text || '').slice(0, 300).trim(); if (!text) return;
@@ -5327,9 +5379,11 @@ function openMpPanel() {
   };
   W.chatAll = () => { log.replaceChildren(); chatLog.forEach(W.chatAdd); log.scrollTop = log.scrollHeight; };
   q('.mp-sayform').onsubmit = e => { e.preventDefault(); const i = q('.mp-msg'); sendChat(i.value); i.value = ''; i.focus(); };
+  const peopleHtml = () => [{ ...me, you: true }, ...mp.peers.values()].map(p => `<li><i style="background:${p.color}"></i>${esc(p.name)}${p.you ? ' <span class="dim">(you)</span>' : pingBars(p)}</li>`).join('');
+  W.people = () => { const ul = q('.mp-people'); if (ul) { const h = peopleHtml(); if (ul.innerHTML !== h) ul.innerHTML = h; } };
   W.render = () => {
     const swatches = MP_COLORS.map(c => `<button class="mp-sw${c === me.color ? ' on' : ''}" data-c="${c}" style="background:${c}" aria-label="Color ${c}"></button>`).join('');
-    const people = [{ ...me, you: true }, ...mp.peers.values()].map(p => `<li><i style="background:${p.color}"></i>${esc(p.name)}${p.you ? ' <span class="dim">(you)</span>' : ''}</li>`).join('');
+    const people = peopleHtml();
     top.innerHTML = `<label class="mp-row">Your name <input class="mp-name" maxlength="24"></label><div class="mp-sws">${swatches}</div>`
       + (room
         ? `<div class="mp-box"><div>Room <b class="mp-code">${esc(roomCode)}</b></div><div class="mp-link"><input class="mp-url" readonly><button class="okbtn mp-copy">Copy link</button></div>`
@@ -5372,7 +5426,7 @@ function openMpPanel() {
   W.status = () => {
     const box = q('.mp-status'); if (!box || !room) return;
     const socks = Object.values(mpLib.getRelaySockets ? mpLib.getRelaySockets() : {}), up = socks.filter(ws => ws && ws.readyState === 1).length;
-    let text = `Helper servers reachable: ${up} of ${socks.length}`, bad = !up;
+    let text = `Helper servers reachable: ${up} of ${socks.length}`, bad = !up && !mp.peers.size;
     if (rtcResult === 'ok') text += ' · Direct connections: OK';
     if (mp.peers.size) {} // connected to someone, so nothing to warn about
     else if (rtcResult === 'off') { bad = true; text += ' · This browser is blocking direct connections (WebRTC). Turn off the VPN, Brave Shields, or ad blocker WebRTC setting for this site, or try Chrome/Edge.'; }

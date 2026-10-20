@@ -1241,11 +1241,13 @@ function openBrowser(start) {
     }, 250);
   });
   // mixer channel: YouTube's volume is set through its embed messages; Spotify's player can't be reached
-  mixChannel(W, 'web', 1, lv => { if (yt && yt.ready) ytSend('setVolume', [Math.round(lv * 100)]); }, {
+  mixChannel(W, 'web', 1, lv => { if (yt && yt.ready) ytSend('setVolume', [Math.round(lv * 100)]); else if (W.spMute) W.spMute(mix.muted || W.audio.muted || !mix.master); }, {
     active: () => !!ytId() || /^https:\/\/open\.spotify\.com\/embed\//.test(frame.src) || !spBox.hidden,
     label: () => ytId() ? 'YouTube' : 'Spotify',
   });
-  Object.defineProperty(W.audio, 'locked', { get: () => ytId() ? '' : "Use Spotify's own volume" });
+  // Spotify's player has no volume control that other pages can reach, so its mixer row only mutes
+  Object.defineProperty(W.audio, 'locked', { get: () => ytId() || !spBox.hidden ? '' : "Use Spotify's own volume" });
+  Object.defineProperty(W.audio, 'muteOnly', { get: () => !ytId() && !spBox.hidden ? 'Mute only' : '' });
   function onYt(e) {
     if (!yt || e.source !== frame.contentWindow || !/youtube/.test(e.origin)) return;
     let d; try { d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data; } catch { return; }
@@ -1271,10 +1273,20 @@ function openBrowser(start) {
   // playing; the last person to press something leads. Everyone hears it through their own Spotify
   // (full songs when logged in to Spotify in this browser, 30-second previews otherwise).
   const spBox = q('.wb-sp'), spBar = q('.wb-sp-bar');
-  const sp = { ctl: null, ready: false, uri: '', track: '', paused: true, t: 0, at: 0, want: null, after: null, waitPlay: false, target: null, remote: null, failed: false };
+  const sp = { ctl: null, ready: false, uri: '', track: '', paused: true, t: 0, at: 0, want: null, after: null, waitPlay: false, target: null, remote: null, failed: false, muted: false, wasPlaying: false };
   const spNow = () => sp.t + (sp.paused ? 0 : (performance.now() - sp.at) / 1000);
   const spState = () => sp.ready && sp.uri && !spBox.hidden ? { u: sp.uri, tr: sp.track, p: sp.paused, t: spNow() } : null;
-  const spPush = () => { const d = live() && spState(); if (d) W.push({ sp: d }); };
+  const spPush = () => { const d = !sp.muted && live() && spState(); if (d) W.push({ sp: d }); };
+  // muting Spotify in the mixer pauses it for you only; unmuting picks up where the room is now
+  function spMute(on) {
+    if (on === sp.muted || !sp.ctl) { sp.muted = on; return; }
+    sp.muted = on;
+    if (on) { sp.wasPlaying = !sp.paused; if (!sp.paused) sp.ctl.pause(); return; }
+    const r = live() && sp.remote;
+    if (r) { const d = { ...r.d, t: r.d.t + (r.d.p ? 0 : (performance.now() - r.got) / 1000) }; sp.remote = null; applySp(d); }
+    else if (sp.wasPlaying) sp.ctl.resume();
+  }
+  W.spMute = spMute;
   function spShow(url) { // returns false when the API can't be used, so the plain player is shown instead
     if (sp.failed) return false;
     const uri = spotifyUri(url);
@@ -1317,6 +1329,7 @@ function openBrowser(start) {
     if (!sp.ctl || !sp.ready || d.u !== sp.uri) { sp.want = d; return; }
     const got = performance.now();
     sp.remote = { d, got }; sp.target = { tr: d.tr, p: d.p, until: got + 3000 }; // what follows is us catching up
+    if (sp.muted) return; // muted: just remember where the room is
     const catchUp = () => {
       const t = d.t + (d.p ? 0 : (performance.now() - got) / 1000);
       if (Math.abs(spNow() - t) > 2) sp.ctl.seek(Math.max(0, t));
@@ -4433,7 +4446,7 @@ function mixerChannels() {
   wins.forEach(w => {
     if (!w.audio || (w.audio.active && !w.audio.active())) return;
     const title = w.el.querySelector('.ttl').textContent;
-    out.push({ id: 'w' + (w.sid || wins.indexOf(w)) + (w.audio.locked ? 'L' : ''), name: w.audio.label ? w.audio.label() : title, title, icon: (w.el.querySelector('.ti img') || {}).src, st: w.audio, w });
+    out.push({ id: 'w' + (w.sid || wins.indexOf(w)) + (w.audio.locked ? 'L' : '') + (w.audio.muteOnly ? 'M' : ''), name: w.audio.label ? w.audio.label() : title, title, icon: (w.el.querySelector('.ti img') || {}).src, st: w.audio, w });
   });
   return out;
 }
@@ -4451,7 +4464,7 @@ function renderMixer(force) {
     const range = box.querySelector('input'), pct = box.querySelector('.mx-pct'), mute = box.querySelector('.mx-mute');
     range.setAttribute('aria-label', `${c.name} volume`);
     const val = () => Math.round((c.master ? st.master : st.vol) * 100);
-    const paint = () => { range.value = val(); pct.textContent = val(); mute.innerHTML = img(st.muted || !val() ? U.mute : U.volume, ''); mute.setAttribute('aria-label', (st.muted ? 'Unmute ' : 'Mute ') + c.name); };
+    const paint = () => { range.value = val(); if (!(c.w && c.w.audio.muteOnly)) pct.textContent = val(); mute.innerHTML = img(st.muted || !val() ? U.mute : U.volume, ''); mute.setAttribute('aria-label', (st.muted ? 'Unmute ' : 'Mute ') + c.name); };
     range.oninput = () => {
       const v = range.value / 100;
       if (c.master) mix.master = v; else st.vol = v;
@@ -4462,6 +4475,7 @@ function renderMixer(force) {
     mute.onclick = () => { st.muted = !st.muted; applyVolume(); paint(); };
     paint();
     if (locked) { range.disabled = mute.disabled = true; pct.className = 'mx-note'; pct.textContent = locked; } // Spotify: only its own volume works
+    else if (c.w && c.w.audio.muteOnly) { range.disabled = true; pct.className = 'mx-note'; pct.textContent = c.w.audio.muteOnly; box.title = "Spotify doesn't let other pages change its volume, so this can only mute it (for you only)"; }
     return box;
   }));
   if (chans.length === (music ? 2 : 1)) mxEl.append(el('<div class="mx-empty">Windows playing sound (music, videos, YouTube) show up here with their own slider.</div>'));

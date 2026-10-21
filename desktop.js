@@ -4535,8 +4535,47 @@ function openRhythm() {
     const sp = box.querySelector('.rk-speed'); if (sp) sp.oninput = () => { opt.speed = +sp.value; saveOpt(); box.querySelector('.rk-speed-v').textContent = (opt.speed / 100).toFixed(1); };
     const of = box.querySelector('.rk-off'); if (of) of.onchange = () => { opt.offset = +of.value || 0; saveOpt(); };
     const st = box.querySelector('.rk-start'); if (st) st.onclick = () => play(song, pickDiff(song));
-    const tg = box.querySelector('.rk-together'); if (tg) tg.onclick = () => { const r = { src: song.src, diff: pickDiff(song), id: Date.now() }; W.push({ together: r }); play(song, r.diff, r); };
+    const tg = box.querySelector('.rk-together'); if (tg) tg.onclick = () => {
+      if (song.chart) { lob = { id: Date.now(), src: song.src, diff: pickDiff(song), host: mp.self, picks: {} }; lob.picks[mp.self] = { name: me.name, color: me.color, side: opt.side === 'opp' ? 'opp' : 'player' }; W.push({ lobby: lob }); showLobby(); return; }
+      const r = { src: song.src, diff: pickDiff(song), id: Date.now() }; W.push({ together: r }); play(song, r.diff, r);
+    };
     const lb = box.querySelector('.rk-lb2'); if (lb) lb.onclick = () => openLeaderboards('rhythm', { song: lbSlug(song.src), diff: pickDiff(song).toLowerCase(), side: song.chart && opt.side === 'opp' ? 'opp' : 'player' });
+  }
+
+  /* ---- Play together lobby (FNF songs): everyone picks Boyfriend or Opponent, the host starts ---- */
+  let lob = null;
+  function showLobby() {
+    if (!lob) return menu();
+    const s = songs.find(x => x.src === lob.src); if (!s) { lob = null; return menu(); }
+    stop(); game = null; stopPreview();
+    q('.rk-play').hidden = true; menuEl.hidden = false; menuEl.dataset.view = 'lobby';
+    W.body.querySelector('.rk').style.setProperty('--sh', rkHue(rkTitle(s)));
+    const host = lob.host === mp.self, mine = (lob.picks[mp.self] || {}).side;
+    const col = (side, label) => {
+      const ppl = Object.entries(lob.picks).filter(([, p]) => p.side === side);
+      return `<div class="rk-lside${mine === side ? ' on' : ''}"><h3>${label}</h3><div class="rk-lppl">${ppl.length ? ppl.map(([id, p]) => `<span style="--c:${esc(p.color)}">${esc(p.name)}${id === mp.self ? ' (you)' : ''}${id === lob.host ? ' ★' : ''}</span>`).join('') : '<em>Nobody yet</em>'}</div>`
+        + `<button class="rk-lpick" data-side="${side}">${mine === side ? '✓ Your side' : `Play ${label}`}</button></div>`;
+    };
+    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><span class="rk-hint">Play together</span></div>`
+      + `<div class="rk-lobby"><div class="rk-lsong"><b>${esc(rkTitle(s))}</b><span>${esc(lob.diff)} · pick a side</span></div>`
+      + `<div class="rk-lsides">${col('player', 'Boyfriend')}${col('opp', 'Opponent')}</div>`
+      + `<p class="rk-note">${host ? 'Start when everyone has picked. People who don\'t pick play the side they usually play.' : `Waiting for ${esc((lob.picks[lob.host] || {}).name || 'the host')} to start…`}</p>`
+      + `<div class="rk-go">${host ? '<button class="rk-start rk-lstart">▶ Start</button>' : ''}<button class="rk-lleave">${host ? 'Cancel' : 'Leave'}</button></div></div>`;
+    menuEl.querySelectorAll('.rk-lpick').forEach(b => b.onclick = () => pickSide(b.dataset.side));
+    const st = menuEl.querySelector('.rk-lstart'); if (st) st.onclick = startLobby;
+    menuEl.querySelector('.rk-lleave').onclick = () => { if (host) W.push({ lobbyEnd: lob.id }); else W.push({ pick: { lobby: lob.id, id: mp.self, side: null } }); lob = null; menu(); };
+  }
+  function pickSide(side) {
+    if (!lob) return;
+    lob.picks[mp.self] = { name: me.name, color: me.color, side };
+    W.push({ pick: { lobby: lob.id, id: mp.self, name: me.name, color: me.color, side } }); showLobby();
+  }
+  function startLobby() {
+    if (!lob || lob.host !== mp.self) return;
+    const s = songs.find(x => x.src === lob.src), sides = {};
+    Object.entries(lob.picks).forEach(([id, p]) => { if (p.side) sides[id] = p.side; });
+    const r = { src: lob.src, diff: lob.diff, id: lob.id, sides };
+    W.push({ together: r }); diff = r.diff; song = s; play(s, r.diff, r);
   }
 
   /* ---- playing ---- */
@@ -4553,17 +4592,18 @@ function openRhythm() {
   }
   async function play(s, d, tog = null) {
     if (!s) return;
-    stopWatch(); stopPreview(); say(s.chart ? 'Loading the song and chart…' : 'Listening to the song and making the chart…');
+    const side = tog && tog.sides && tog.sides[mp.self] ? tog.sides[mp.self] : opt.side; // the side picked in the lobby, or your usual one
+    lob = null; stopWatch(); stopPreview(); say(s.chart ? 'Loading the song and chart…' : 'Listening to the song and making the chart…');
     menuEl.classList.add('loading');
     try {
-      const { buf, notes, opp, bpm } = await loadSong(s, d, opt.side);
+      const { buf, notes, opp, bpm } = await loadSong(s, d, side);
       if (rkCtx.state === 'suspended') await rkCtx.resume();
       setMusic(false); if (playerWin) { const a = playerWin.body.querySelector('audio'); if (a) a.pause(); }
       together = tog; others.clear();
       const src = rkCtx.createBufferSource(); src.buffer = buf; gain = rkCtx.createGain(); analyser = rkCtx.createAnalyser(); analyser.fftSize = 256; analyser.smoothingTimeConstant = 0.75;
       W.audio.apply(); src.connect(gain); gain.connect(analyser); analyser.connect(rkCtx.destination);
       const lead = 2.2, t0 = rkCtx.currentTime + lead; src.start(t0);
-      game = { s, d, src, t0, bpm, run: Date.now(), side: s.chart ? opt.side : 'player', notes: notes.map((n, i) => ({ ...n, i, hit: null })), opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0, out: [],
+      game = { s, d, src, t0, bpm, run: Date.now(), side: s.chart ? side : 'player', notes: notes.map((n, i) => ({ ...n, i, hit: null })), opp: opp.map(n => ({ ...n })), score: 0, combo: 0, maxCombo: 0, out: [],
         counts: { Perfect: 0, Great: 0, Good: 0, Miss: 0 }, held: [0, 0, 0, 0], press: [0, 0, 0, 0], fx: [], pop: null, errs: [], end: buf.duration, done: false, bump: 0, spec: new Uint8Array(analyser.frequencyBinCount) };
       src.onended = () => finish();
       menuEl.classList.remove('loading'); menuEl.hidden = true; q('.rk-play').hidden = false;
@@ -4711,7 +4751,7 @@ function openRhythm() {
     g.strokeStyle = `hsl(${hue},90%,65%)`; g.beginPath(); g.arc(pcx, pcy, 26, -Math.PI / 2, -Math.PI / 2 + pr * Math.PI * 2); g.stroke();
     g.fillStyle = '#fff'; g.font = 'bold 11px Segoe UI, sans-serif'; g.textAlign = 'center'; g.fillText(rkTime(Math.max(0, game.end - Math.max(0, t))), pcx, pcy + 4);
     if (t < 0) { const c = Math.ceil(-t); g.textAlign = 'center'; g.font = '900 64px Segoe UI, sans-serif'; g.fillStyle = `rgba(255,255,255,${0.4 + (-t % 1) * 0.6})`; g.fillText(c, PX + LW * 2, 330); g.font = 'bold 13px Segoe UI, sans-serif'; g.fillStyle = '#cfd8ff'; g.fillText('Esc to quit', PX + LW * 2, 360); }
-    if (together && nowMs - liveT > 500) { liveT = nowMs; W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc: accuracy(), done: false } }); }
+    if (together && nowMs - liveT > 500) { liveT = nowMs; W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, side: game.side, score: game.score, acc: accuracy(), done: false } }); }
     else if (!together && !game.watch && live() && (nowMs - liveT > 90 || game.out.length > 6)) { liveT = nowMs; W.push({ rw: rwPacket(t) }); } // for anyone watching
     if (game.watch) {
       g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(PX, 0, LW * 4, 26); g.fillStyle = game.color || '#fff'; g.font = 'bold 13px Segoe UI, sans-serif'; g.textAlign = 'center';
@@ -4728,8 +4768,11 @@ function openRhythm() {
   function renderLive() {
     const box = q('.rk-live');
     if (!together) { if (box.innerHTML) box.innerHTML = ''; return; }
-    const rows = [{ name: me.name + ' (you)', color: me.color, score: game ? game.score : 0, acc: game ? accuracy() : 100 }, ...others.values()].sort((a, b) => b.score - a.score);
-    box.innerHTML = '<h4>Together</h4>' + rows.map((r, i) => `<div><b>${i + 1}.</b> <span style="color:${esc(r.color)}">${esc(r.name)}</span> ${r.score} · ${r.acc.toFixed(1)}%${r.done ? ' ✓' : ''}</div>`).join('');
+    const rows = [{ name: me.name + ' (you)', color: me.color, side: game ? game.side : '', score: game ? game.score : 0, acc: game ? accuracy() : 100 }, ...others.values()].sort((a, b) => b.score - a.score);
+    const fnf = game && game.s.chart, tag = r => fnf && r.side ? ` <i class="rk-sidetag ${r.side === 'opp' ? 'opp' : 'bf'}">${r.side === 'opp' ? 'OPP' : 'BF'}</i>` : '';
+    const team = side => rows.filter(r => r.side === side).reduce((a, r) => a + r.score, 0);
+    box.innerHTML = '<h4>Together</h4>' + (fnf && rows.some(r => r.side === 'opp') && rows.some(r => r.side !== 'opp') ? `<div class="rk-teams"><span class="bf">Boyfriend ${team('player').toLocaleString()}</span><span class="opp">Opponent ${team('opp').toLocaleString()}</span></div>` : '')
+      + rows.map((r, i) => `<div><b>${i + 1}.</b> <span style="color:${esc(r.color)}">${esc(r.name)}</span>${tag(r)} ${r.score} · ${r.acc.toFixed(1)}%${r.done ? ' ✓' : ''}</div>`).join('');
   }
   function finish() {
     if (!game || game.done) return;
@@ -4738,7 +4781,7 @@ function openRhythm() {
     game.notes.forEach(n => { if (!n.hit) { n.hit = 'Miss'; game.counts.Miss++; } });
     const acc = accuracy(), gr = grade(acc), b = best(game.s, game.d), isBest = !b || game.score > b.score;
     if (isBest) store.set(bestKey(game.s, game.d), { score: game.score, grade: gr, acc: +acc.toFixed(2), combo: game.maxCombo });
-    if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc, done: true } });
+    if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, side: game.side, score: game.score, acc, done: true } });
     else if (live()) W.push({ rw: { id: mp.self, run: game.run, end: true, name: me.name, score: game.score, acc, grade: gr } });
     if (game.score > 0) lbSubmit('rhythm', `rk:${lbSlug(game.s.src)}:${game.d.toLowerCase()}:${game.side === 'opp' ? 'opp' : 'player'}`, game.score, `${acc.toFixed(2)}% · ${gr} · ${game.maxCombo}x`);
     const c = game.counts, total = Math.max(1, c.Perfect + c.Great + c.Good + c.Miss);
@@ -4852,6 +4895,7 @@ function openRhythm() {
       return;
     }
     if (e.type !== 'keydown' || menuEl.hidden) return;
+    if (menuEl.dataset.view === 'lobby') { if (e.key === 'Enter' && lob && lob.host === mp.self) { e.preventDefault(); startLobby(); } return; }
     if (menuEl.dataset.view === 'result') { if (e.key === 'Enter') { e.preventDefault(); menuEl.querySelector('.rk-retry').click(); } else if (e.key === 'Escape') menu(); return; }
     if (menuEl.dataset.tab === 'settings') { if (e.key === 'Escape') showTab('songs'); return; }
     const i = songs.indexOf(song), ds = diffsOf(song), di = ds.indexOf(pickDiff(song));
@@ -4866,7 +4910,10 @@ function openRhythm() {
   cv.style.touchAction = 'none';
   // multiplayer: someone pressed "Play together"; live scores while playing it
   shareState(W, () => ({}), d => {
-    if (d.together) { const s = songs.find(x => x.src === d.together.src); if (s) { stop(); diff = d.together.diff; song = s; play(s, d.together.diff, d.together); } }
+    if (d.lobby) { if (!(game && !game.done && !game.watch)) { if (game && game.watch) stopWatch(); lob = d.lobby; if (!lob.picks[mp.self]) { lob.picks[mp.self] = { name: me.name, color: me.color, side: opt.side === 'opp' ? 'opp' : 'player' }; W.push({ pick: { lobby: lob.id, id: mp.self, ...lob.picks[mp.self] } }); } showLobby(); } }
+    else if (d.pick && lob && d.pick.lobby === lob.id) { if (d.pick.side) lob.picks[d.pick.id] = { name: d.pick.name, color: d.pick.color, side: d.pick.side }; else delete lob.picks[d.pick.id]; if (menuEl.dataset.view === 'lobby') showLobby(); }
+    else if (d.lobbyEnd && lob && d.lobbyEnd === lob.id) { lob = null; menu('The host cancelled Play together.'); }
+    else if (d.together) { const s = songs.find(x => x.src === d.together.src); if (s && !(game && !game.done && !game.watch && together && together.id === d.together.id)) { stop(); diff = d.together.diff; song = s; play(s, d.together.diff, d.together); } }
     else if (d.rw) { const p = d.rw; if (!p.end) p.seen = performance.now(); seePlayer(p); }
     else if (d.live && together && d.live.tog === together.id) { others.set(d.live.id, d.live); renderLive(); const lv = q('.rk-live2'); if (lv) lv.innerHTML = q('.rk-live').innerHTML; }
   });

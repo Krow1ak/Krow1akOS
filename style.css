@@ -929,3 +929,20 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .rk-keyset.big small{font:600 10px var(--font-ui);letter-spacing:1px;text-transform:uppercase;color:#888}
 .rk-keyset.big button.on{border-color:hsl(var(--sh),70%,55%);color:hsl(var(--sh),80%,70%);font-size:12px}
 .rk-keyreset{align-self:flex-start;padding:4px 10px;border:1px solid #333;border-radius:5px;background:#151515;color:#bbb;font:600 11px var(--font-ui);cursor:pointer}
+/* rhythm keys: Play together lobby */
+.rk-lobby{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:14px;padding-top:8px}
+.rk-lsong{display:flex;flex-direction:column;align-items:center;gap:2px}.rk-lsong b{font:800 22px var(--font-ui);color:#fff}.rk-lsong span{font-size:12px;color:#888}
+.rk-lsides{width:min(620px,100%);display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.rk-lside{display:flex;flex-direction:column;gap:10px;padding:14px;border:2px solid #262626;border-radius:8px;background:rgba(14,14,14,.92);min-height:200px}
+.rk-lside.on{border-color:hsl(var(--sh),70%,55%)}
+.rk-lside h3{margin:0;text-align:center;font:800 16px var(--font-ui);letter-spacing:2px;text-transform:uppercase;color:#fff}
+.rk-lside:first-child h3{color:#4fc3ff}.rk-lside:last-child h3{color:#ff6b8a}
+.rk-lppl{flex:1;display:flex;flex-direction:column;gap:6px}
+.rk-lppl span{padding:5px 10px;border-radius:5px;background:#151515;border-left:4px solid var(--c);font-size:13px;color:#eee}
+.rk-lppl em{color:#666;font-size:12px;text-align:center;margin-top:20px}
+.rk-lpick{padding:8px;border:1px solid #333;border-radius:6px;background:#1c1c1c;color:#ddd;font:700 13px var(--font-ui);cursor:pointer}
+.rk-lside.on .rk-lpick{background:hsl(var(--sh),60%,42%);border-color:transparent;color:#fff}
+.rk-lobby .rk-go{margin-top:0}
+.rk-sidetag{font-style:normal;font-size:9px;font-weight:800;padding:1px 4px;border-radius:3px;vertical-align:1px}
+.rk-sidetag.bf{background:#123a52;color:#4fc3ff}.rk-sidetag.opp{background:#4a1626;color:#ff6b8a}
+.rk-teams{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;font-weight:700}.rk-teams .bf{color:#4fc3ff}.rk-teams .opp{color:#ff6b8a}

@@ -4401,7 +4401,7 @@ function openRhythm() {
   const W = makeWin({ title: 'Rhythm Keys', icon: I.rhythm, w: 880, h: 660 });
   W.body.innerHTML = '<div class="rk"><div class="rk-bg"><i></i><i></i><i></i></div><div class="rk-menu"></div><div class="rk-play" hidden><canvas class="rk-c" width="600" height="600" aria-label="Playfield"></canvas><div class="rk-live"></div></div></div>';
   const q = sel => W.body.querySelector(sel), cv = q('.rk-c'), g = cv.getContext('2d'), menuEl = q('.rk-menu');
-  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && !songs.some(s => s.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
+  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && c.rhythm !== false && !songs.some(s => s.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
   const opt = { speed: store.get('rk-speed', 900), offset: store.get('rk-offset', 0), style: store.get('rk-style', 'arrows'), side: store.get('rk-side', 'player'), keys: store.get('rk-keys', ['KeyD', 'KeyF', 'KeyJ', 'KeyK']) };
   const saveOpt = () => ['speed', 'offset', 'style', 'side', 'keys'].forEach(k => store.set('rk-' + k, opt[k]));
   let song = songs.find(s => s.src === store.get('rk-song', '')) || songs[0], diff = store.get('rk-diff', 'Normal');
@@ -4436,68 +4436,87 @@ function openRhythm() {
     players.forEach((p, id) => { if (performance.now() - (p.seen || 0) > 6000) players.delete(id); }); watchBanner();
   }, 700);
 
-  /* ---- song select ---- */
+  /* ---- song select: song details and settings on the left, a wheel of songs on the right ---- */
+  const art = s => s.image ? `<img src="${esc(urlOf(s.image))}" alt="" draggable="false">`
+    : `<span>${esc(rkTitle(s).replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '♪')}</span>`;
   function card(s, i) {
-    const m = meta[s.src] || {}, b = best(s, pickDiff(s)), f = m.fnf;
-    const sub = s.chart ? `FNF chart${f && f.bpm ? ` · ${f.bpm} BPM` : ''}` : 'Auto chart';
-    return `<button class="rk-card${s === song ? ' on' : ''}" data-i="${i}" style="--h:${rkHue(rkTitle(s))}"><span class="rk-card-art">${esc(rkTitle(s).replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase() || '♪')}</span>`
-      + `<span class="rk-card-txt"><b>${esc(rkTitle(s))}</b><small>${sub} · ${rkTime(m.len)}</small></span>${b ? `<span class="rk-badge g${b.grade}">${b.grade}</span>` : ''}</button>`;
+    const b = best(s, pickDiff(s)), ds = diffsOf(s);
+    return `<button class="rk-card" data-i="${i}" style="--h:${rkHue(rkTitle(s))}"><span class="rk-card-art">${art(s)}</span>`
+      + `<span class="rk-card-txt"><b>${esc(rkTitle(s))}</b><small>${ds.map(x => `<i style="color:${RK_DIFF_COLOR[x] || '#9aa6c8'}">${esc(x)}</i>`).join(' · ')}</small></span>${b ? `<span class="rk-badge g${b.grade}">${b.grade}</span>` : ''}</button>`;
   }
-  function detail() {
+  function describe(s) { // the description from config.js, or what we know about the song
+    if (s.description) return esc(s.description);
+    const m = meta[s.src] || {}, f = m.fnf;
+    return [s.chart ? "Friday Night Funkin' chart" : 'Chart made from the song itself', f && f.bpm ? `${f.bpm} BPM` : '', m.len ? rkTime(m.len) : ''].filter(Boolean).map(esc).join(' · ');
+  }
+  function info() {
     const s = song; if (!s) return '<div class="rk-empty">No songs yet: add some to the Music folder in config.js.</div>';
-    const m = meta[s.src] || {}, d = pickDiff(s), f = m.fnf, b = best(s, d);
+    const m = meta[s.src] || {}, d = pickDiff(s), f = m.fnf;
     const chart = f && f.diffs[d] ? f.diffs[d][opt.side === 'opp' ? 'opp' : 'player'] : null, holds = chart ? chart.filter(n => n.len > 0.05).length : 0;
-    const tags = [s.chart ? 'FNF chart' : 'Made from the song', f && f.bpm ? `${f.bpm} BPM` : '', m.len ? rkTime(m.len) : '', chart ? `${chart.length} notes` : '', holds ? `${holds} holds` : ''].filter(Boolean);
-    const keyName = c => c.replace(/^Key/, '').replace(/^Digit/, '').replace('Space', '␣');
-    return `<div class="rk-cover" style="--h:${rkHue(rkTitle(s))}"><b>${esc(rkTitle(s))}</b></div>`
-      + `<div class="rk-tags">${tags.map(t => `<span>${esc(t)}</span>`).join('')}</div>`
+    return `<div class="rk-info-art" style="--h:${rkHue(rkTitle(s))}">${art(s)}</div><div class="rk-info-txt"><h2>${esc(rkTitle(s))}</h2>`
+      + `<p class="rk-desc">${describe(s)}${chart ? `<br>${chart.length} notes${holds ? ` · ${holds} holds` : ''}` : ''}</p>`
       + (m.bad ? '<p class="rk-msg">Couldn\'t read this song\'s chart file.</p>' : '')
-      + `<div class="rk-diffs">${diffsOf(s).map(x => `<button class="rk-pill${x === d ? ' on' : ''}" data-d="${esc(x)}" style="--c:${RK_DIFF_COLOR[x] || '#9aa6c8'}">${esc(x)}</button>`).join('')}</div>`
+      + `<div class="rk-diffs">${diffsOf(s).map(x => `<button class="rk-pill${x === d ? ' on' : ''}" data-d="${esc(x)}" style="--c:${RK_DIFF_COLOR[x] || '#9aa6c8'}">${esc(x)}</button>`).join('')}</div></div>`;
+  }
+  function settings() {
+    const s = song; if (!s) return '';
+    const b = best(s, pickDiff(s)), keyName = c => c.replace(/^Key/, '').replace(/^Digit/, '').replace('Space', '␣');
+    return '<h3>Settings</h3>'
       + (s.chart ? `<div class="rk-row"><span>Play as</span><div class="rk-seg"><button data-side="player" class="${opt.side !== 'opp' ? 'on' : ''}">Boyfriend</button><button data-side="opp" class="${opt.side === 'opp' ? 'on' : ''}">Opponent</button></div></div>` : '')
-      + `<div class="rk-best">${b ? `<span class="rk-bgrade g${b.grade}">${b.grade}</span><div><small>Personal best</small><b>${b.score.toLocaleString()}</b><span>${b.acc}%${b.combo ? ` · ${b.combo}x combo` : ''}</span></div>` : '<div><small>Personal best</small><b>Not played yet</b></div>'}</div>`
-      + `<details class="rk-set"${store.get('rk-set-open', false) ? ' open' : ''}><summary>Settings</summary>`
       + `<label class="rk-row"><span>Scroll speed</span><input type="range" class="rk-speed" min="400" max="2200" step="50" value="${opt.speed}"><b class="rk-speed-v">${(opt.speed / 100).toFixed(1)}</b></label>`
       + `<label class="rk-row"><span>Timing offset</span><input type="number" class="rk-off" value="${opt.offset}" step="5"> ms</label>`
       + `<div class="rk-row"><span>Notes</span><div class="rk-seg"><button data-style="arrows" class="${opt.style === 'arrows' ? 'on' : ''}">Arrows</button><button data-style="bars" class="${opt.style === 'bars' ? 'on' : ''}">Bars</button></div></div>`
-      + `<div class="rk-row"><span>Keys</span><div class="rk-keyset">${opt.keys.map((k, i) => `<button data-k="${i}" class="${binding === i ? 'on' : ''}">${binding === i ? '…' : esc(keyName(k))}</button>`).join('')}</div></div></details>`
-      + `<div class="rk-go"><button class="rk-start">▶ Play</button>${live() ? '<button class="rk-together">Play together</button>' : ''}</div><p class="rk-msg"></p>`;
+      + `<div class="rk-row"><span>Keys</span><div class="rk-keyset">${opt.keys.map((k, i) => `<button data-k="${i}" class="${binding === i ? 'on' : ''}">${binding === i ? '…' : esc(keyName(k))}</button>`).join('')}</div></div>`
+      + `<div class="rk-best">${b ? `<span class="rk-bgrade g${b.grade}">${b.grade}</span><div><small>Personal best</small><b>${b.score.toLocaleString()}</b><span>${b.acc}%${b.combo ? ` · ${b.combo}x combo` : ''}</span></div>` : '<div><small>Personal best</small><b>Not played yet</b></div>'}</div>`
+      + `<div class="rk-go"><button class="rk-start">▶ Play</button>${live() ? '<button class="rk-together">Play together</button>' : ''}<button class="rk-lb2" title="Leaderboard">🏆</button></div><p class="rk-msg"></p>`;
   }
   function menu(msg = '') {
     stop(); game = null;
     q('.rk-play').hidden = true; menuEl.hidden = false; menuEl.dataset.view = 'select';
     songs.forEach(learn);
-    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><span class="rk-hint">↑ ↓ song · ← → difficulty · Enter play</span></div>`
-      + `<div class="rk-cols"><div class="rk-list">${songs.map(card).join('')}</div><div class="rk-detail"></div></div>`;
+    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><span class="rk-hint">↑ ↓ or scroll: song · ← → difficulty · Enter play</span></div>`
+      + `<div class="rk-cols"><div class="rk-left"><div class="rk-info"></div><div class="rk-settings"></div></div>`
+      + `<div class="rk-wheel"><button class="rk-wbtn up" aria-label="Previous song">▲</button>${songs.map(card).join('')}<button class="rk-wbtn down" aria-label="Next song">▼</button></div></div>`;
     menuEl.querySelectorAll('.rk-card').forEach(b => b.onclick = () => select(songs[+b.dataset.i]));
-    renderDetail(); if (msg) say(msg);
-    const on = menuEl.querySelector('.rk-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+    const step = d => { const i = songs.indexOf(song); select(songs[(i + d + songs.length) % songs.length]); };
+    menuEl.querySelector('.rk-wbtn.up').onclick = () => step(-1); menuEl.querySelector('.rk-wbtn.down').onclick = () => step(1);
+    let wheelT = 0; menuEl.querySelector('.rk-wheel').addEventListener('wheel', e => { e.preventDefault(); const now = performance.now(); if (now - wheelT < 140 || !e.deltaY) return; wheelT = now; step(e.deltaY > 0 ? 1 : -1); }, { passive: false });
+    placeWheel(); renderDetail(); if (msg) say(msg);
+  }
+  function placeWheel() { // the chosen song sticks out in the middle; the others curve away above and below
+    const cards = [...menuEl.querySelectorAll('.rk-card')], at = songs.indexOf(song);
+    cards.forEach(c => {
+      const d = +c.dataset.i - at, a = Math.abs(d);
+      c.classList.toggle('on', d === 0);
+      c.style.transform = `translateY(calc(-50% + ${d * 92}px)) translateX(${d === 0 ? 0 : 34 + a * a * 10}px) scale(${d === 0 ? 1 : Math.max(0.78, 0.92 - a * 0.04)})`;
+      c.style.opacity = a > 3 ? 0 : d === 0 ? 1 : 0.75 - a * 0.12; c.style.zIndex = 10 - a; c.tabIndex = a > 3 ? -1 : 0;
+    });
   }
   const say = msg => { const m = menuEl.querySelector('.rk-msg'); if (m) m.textContent = msg; };
-  function refresh() { // metadata arrived: update the cards and details without rebuilding the list
+  function refresh() { // metadata arrived: update the cards and details without rebuilding the wheel
     if (menuEl.hidden || menuEl.dataset.view !== 'select') return;
-    menuEl.querySelectorAll('.rk-card').forEach(b => { const n = el(card(songs[+b.dataset.i], +b.dataset.i)); n.onclick = b.onclick; b.replaceWith(n); });
+    menuEl.querySelectorAll('.rk-card').forEach(b => { const n = el(card(songs[+b.dataset.i], +b.dataset.i)); n.onclick = b.onclick; n.style.cssText = b.style.cssText; n.className = b.className; b.replaceWith(n); });
     renderDetail();
   }
   function select(s) {
     if (!s || s === song) return;
     song = s; store.set('rk-song', s.src); stopPreview();
-    menuEl.querySelectorAll('.rk-card').forEach(b => b.classList.toggle('on', songs[+b.dataset.i] === s));
-    const on = menuEl.querySelector('.rk-card.on'); if (on) on.scrollIntoView({ block: 'nearest' });
-    renderDetail();
+    placeWheel(); renderDetail();
   }
   function renderDetail() {
-    const box = menuEl.querySelector('.rk-detail'); if (!box) return;
+    const box = menuEl.querySelector('.rk-left'); if (!box) return;
     const msg = (box.querySelector('.rk-msg') || {}).textContent || '';
-    box.innerHTML = detail(); const m = box.querySelector('.rk-msg'); if (m && msg) m.textContent = msg;
+    box.querySelector('.rk-info').innerHTML = info(); box.querySelector('.rk-settings').innerHTML = settings();
+    const m = box.querySelector('.rk-msg'); if (m && msg) m.textContent = msg;
     box.querySelectorAll('.rk-pill').forEach(b => b.onclick = () => { diff = b.dataset.d; store.set('rk-diff', diff); refresh(); });
     box.querySelectorAll('[data-side]').forEach(b => b.onclick = () => { opt.side = b.dataset.side; saveOpt(); refresh(); });
     box.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { opt.style = b.dataset.style; saveOpt(); renderDetail(); });
     box.querySelectorAll('.rk-keyset button').forEach(b => b.onclick = () => { binding = +b.dataset.k; renderDetail(); });
-    const set = box.querySelector('.rk-set'); if (set) set.ontoggle = () => store.set('rk-set-open', set.open);
     const sp = box.querySelector('.rk-speed'); if (sp) sp.oninput = () => { opt.speed = +sp.value; saveOpt(); box.querySelector('.rk-speed-v').textContent = (opt.speed / 100).toFixed(1); };
     const of = box.querySelector('.rk-off'); if (of) of.onchange = () => { opt.offset = +of.value || 0; saveOpt(); };
     const st = box.querySelector('.rk-start'); if (st) st.onclick = () => play(song, pickDiff(song));
     const tg = box.querySelector('.rk-together'); if (tg) tg.onclick = () => { const r = { src: song.src, diff: pickDiff(song), id: Date.now() }; W.push({ together: r }); play(song, r.diff, r); };
+    const lb = box.querySelector('.rk-lb2'); if (lb) lb.onclick = () => openLeaderboards('rhythm', { song: lbSlug(song.src), diff: pickDiff(song).toLowerCase(), side: song.chart && opt.side === 'opp' ? 'opp' : 'player' });
   }
 
   /* ---- playing ---- */
@@ -4893,7 +4912,7 @@ function openLeaderboards(gameId = store.get('lb-game', 'tetris'), sel = {}) {
   W.body.innerHTML = '<div class="lbx"><nav class="lbx-games"></nav><div class="lbx-main"><div class="lbx-head"></div><div class="lbx-list"></div>'
     + '<div class="lbx-foot"><label>Your name on the leaderboards <input class="lbx-name" maxlength="24"></label><button class="okbtn lbx-ref">Refresh</button></div></div></div>';
   const q = x => W.body.querySelector(x);
-  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && !songs.some(t => t.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
+  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && c.rhythm !== false && !songs.some(t => t.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
   let game = gameId, day = dayKey(), opt = { level: 'Beginner', song: songs[0] ? lbSlug(songs[0].src) : '', diff: 'normal', side: 'player' }, ask = 0;
   q('.lbx-games').innerHTML = LB_GAMES.map(G => `<button data-g="${G.id}">${img(I[G.icon] || I.leaderboards, '')}<span>${esc(G.name)}</span></button>`).join('');
   q('.lbx-games').querySelectorAll('button').forEach(b => b.onclick = () => W.show(b.dataset.g));

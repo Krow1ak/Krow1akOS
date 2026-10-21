@@ -271,9 +271,11 @@ const MEMES = folder('Memes', [
    Rhythm Keys makes a chart for every song by itself. For a Friday Night Funkin' chart, put its .json in
    assets/charts/ and add chart: to the song. Both the old/Psych Engine charts and the newer FNF ones
    (with every difficulty in one file) work. Several songs can share one chart, like a version with
-   vocals and an instrumental. chartOffset: 30 moves the notes 30 ms later if the song starts late. */
+   vocals and an instrumental. chartOffset: 30 moves the notes 30 ms later if the song starts late.
+   Other options for Rhythm Keys: image: 'assets/music/cover.png' (square picture on the song card),
+   description: 'a line about the song', and rhythm: false to leave a song out of Rhythm Keys. */
 const MUSIC = folder('Music', [
-  audio('corrupted.mp3', 'assets/music/corrupted.mp3'),
+  audio('corrupted.mp3', 'assets/music/corrupted.mp3', { rhythm: false }), // in the Music folder, not in Rhythm Keys
   audio('Last Chance.mp3', 'assets/music/last-chance.mp3', { chart: 'assets/charts/last-chance.json', chartOffset: 29 }), // the mp3 starts 29 ms late
   audio('Last Chance (Instrumental).ogg', 'assets/music/last-chance-instrumental.ogg', { chart: 'assets/charts/last-chance.json' }),
 ], { icon: ASSETS.icons.folderMusic });

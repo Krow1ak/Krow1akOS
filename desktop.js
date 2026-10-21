@@ -4504,6 +4504,7 @@ function openRhythm() {
     placeWheel(); renderDetail();
   }
   function renderDetail() {
+    if (song) W.body.querySelector('.rk').style.setProperty('--sh', rkHue(rkTitle(song))); // the background glows in the song's colour
     const box = menuEl.querySelector('.rk-left'); if (!box) return;
     const msg = (box.querySelector('.rk-msg') || {}).textContent || '';
     box.querySelector('.rk-info').innerHTML = info(); box.querySelector('.rk-settings').innerHTML = settings();

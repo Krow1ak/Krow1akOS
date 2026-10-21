@@ -747,7 +747,7 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 /* left: the chosen song, then settings */
 .rk-left{min-height:0;display:flex;flex-direction:column;gap:12px}
 .rk-info{flex:none;display:flex;gap:12px;padding:12px;border:3px solid #2c3150;border-radius:10px;background:#0c0e1a}
-.rk-info-art,.rk-card-art{--h:220;flex:none;display:grid;place-items:center;overflow:hidden;border-radius:6px;background:linear-gradient(135deg,hsl(var(--h),55%,32%),hsl(calc(var(--h) + 50),55%,14%));box-shadow:inset 0 0 0 2px rgba(255,255,255,.12)}
+.rk-info-art,.rk-card-art{flex:none;display:grid;place-items:center;overflow:hidden;border-radius:6px;background:linear-gradient(135deg,hsl(var(--h),55%,32%),hsl(calc(var(--h) + 50),55%,14%));box-shadow:inset 0 0 0 2px rgba(255,255,255,.12)}
 .rk-info-art{width:104px;height:104px;border:3px solid #2c3150}
 .rk-info-art span{font:900 32px var(--font-ui);color:rgba(255,255,255,.9)}
 .rk-info-art img,.rk-card-art img{width:100%;height:100%;object-fit:cover}
@@ -885,3 +885,32 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .wd-lb{margin-top:10px}
 .rk-lb{background:#2a3050}
 @media (max-width:640px){.lbx{flex-direction:column}.lbx-games{width:auto;flex-direction:row;overflow-x:auto}.lbx-games span{display:none}}
+
+/* rhythm keys menu: black, lit by the chosen song's colour, flat panels */
+@property --sh{syntax:'<number>';inherits:true;initial-value:220}
+.rk{--sh:220;background:#000;transition:--sh .6s ease}
+.rk-bg{background:radial-gradient(ellipse 70% 80% at 72% 50%,hsla(var(--sh),75%,45%,.32),transparent 70%),radial-gradient(ellipse 60% 60% at 15% 20%,hsla(var(--sh),75%,45%,.12),transparent 70%)}
+.rk-bg i{display:none}
+.rk-logo{font:800 20px var(--font-ui);letter-spacing:0;color:#fff}.rk-logo b{background:none;-webkit-background-clip:border-box;background-clip:border-box;color:hsl(var(--sh),80%,65%)}
+.rk-hint{color:#777}
+.rk-info,.rk-settings{border:2px solid #262626;background:rgba(14,14,14,.92);border-radius:8px}
+.rk-info-art{border:2px solid #262626;border-radius:6px;box-shadow:none;background:hsl(var(--h),45%,28%)}
+.rk-card-art{box-shadow:none;background:hsl(var(--h),45%,28%)}
+.rk-info-txt h2,.rk-desc{border:1px solid #262626;border-radius:4px}
+.rk-desc{color:#999}
+.rk-settings h3{font:800 18px var(--font-ui);letter-spacing:2px;color:#fff}
+.rk-row>span{color:#888}
+.rk-row input[type=number],.rk-keyset button{background:#151515;border-color:#333}
+.rk-seg{border-color:#333}.rk-seg button{color:#ccc}.rk-seg button.on{background:hsl(var(--sh),60%,45%);color:#fff}
+.rk-best{background:#151515;border-color:#262626}.rk-best small{color:#888}.rk-best span{color:#aaa}
+.rk-pill{border-radius:4px;border-width:1px}.rk-pill.on{box-shadow:none}
+.rk-card{border:2px solid #262626;border-radius:8px;background:rgba(14,14,14,.92);transition:transform .25s ease,opacity .25s,border-color .2s}
+.rk-card:hover{border-color:#3a3a3a}
+.rk-card.on{border-color:hsl(var(--h),70%,55%);background:rgba(20,20,20,.95);box-shadow:none}
+.rk-card-art{border-right:2px solid #262626}.rk-card.on .rk-card-art{border-right-color:hsl(var(--h),70%,55%)}
+.rk-wbtn{border:1px solid #333;background:#111;color:#888;border-radius:4px}
+.rk-go button{border-radius:6px;background:#1c1c1c;box-shadow:none}
+.rk-start,.rk-retry{background:hsl(var(--sh),60%,42%)!important;box-shadow:none!important}
+.rk-start:hover,.rk-retry:hover{filter:brightness(1.15)}
+.rk-result{background:rgba(14,14,14,.92);border:2px solid #262626;border-radius:10px}
+.rk-detail,.rk-live{color:#ddd}

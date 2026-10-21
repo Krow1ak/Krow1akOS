@@ -4394,6 +4394,9 @@ const RK_DIFF_COLOR = { Easy: '#4cd964', Normal: '#4aa3ff', Hard: '#ff5a5f', Cha
 const rkHue = s => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
 const rkTime = s => s ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '–';
 const rkTitle = s => s.name.replace(/\.[^.]+$/, '');
+const rkKeyName = c => ({ Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/', Backslash: '\\', BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`', Space: 'Space',
+  ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', ShiftLeft: 'Shift', ShiftRight: 'R Shift', ControlLeft: 'Ctrl', ControlRight: 'R Ctrl', AltLeft: 'Alt', AltRight: 'R Alt', Enter: 'Enter', Tab: 'Tab' })[c]
+  || c.replace(/^Key/, '').replace(/^Digit/, '').replace(/^Numpad/, 'Num ');
 let rkWin = null;
 function openRhythm() {
   if (rkWin) { focusWin(rkWin); return rkWin; }
@@ -4460,28 +4463,41 @@ function openRhythm() {
   }
   function settings() {
     const s = song; if (!s) return '';
-    const b = best(s, pickDiff(s)), keyName = c => c.replace(/^Key/, '').replace(/^Digit/, '').replace('Space', '␣');
-    return '<h3>Settings</h3>'
-      + (s.chart ? `<div class="rk-row"><span>Play as</span><div class="rk-seg"><button data-side="player" class="${opt.side !== 'opp' ? 'on' : ''}">Boyfriend</button><button data-side="opp" class="${opt.side === 'opp' ? 'on' : ''}">Opponent</button></div></div>` : '')
-      + `<label class="rk-row"><span>Scroll speed</span><input type="range" class="rk-speed" min="400" max="2200" step="50" value="${opt.speed}"><b class="rk-speed-v">${(opt.speed / 100).toFixed(1)}</b></label>`
-      + `<label class="rk-row"><span>Timing offset</span><input type="number" class="rk-off" value="${opt.offset}" step="5"> ms</label>`
-      + `<div class="rk-row"><span>Notes</span><div class="rk-seg"><button data-style="arrows" class="${opt.style === 'arrows' ? 'on' : ''}">Arrows</button><button data-style="bars" class="${opt.style === 'bars' ? 'on' : ''}">Bars</button></div></div>`
-      + `<div class="rk-row"><span>Keys</span><div class="rk-keyset">${opt.keys.map((k, i) => `<button data-k="${i}" class="${binding === i ? 'on' : ''}">${binding === i ? '…' : esc(keyName(k))}</button>`).join('')}</div></div>`
+    const b = best(s, pickDiff(s));
+    return (s.chart ? `<div class="rk-row"><span>Play as</span><div class="rk-seg"><button data-side="player" class="${opt.side !== 'opp' ? 'on' : ''}">Boyfriend</button><button data-side="opp" class="${opt.side === 'opp' ? 'on' : ''}">Opponent</button></div></div>` : '')
       + `<div class="rk-best">${b ? `<span class="rk-bgrade g${b.grade}">${b.grade}</span><div><small>Personal best</small><b>${b.score.toLocaleString()}</b><span>${b.acc}%${b.combo ? ` · ${b.combo}x combo` : ''}</span></div>` : '<div><small>Personal best</small><b>Not played yet</b></div>'}</div>`
       + `<div class="rk-go"><button class="rk-start">▶ Play</button>${live() ? '<button class="rk-together">Play together</button>' : ''}<button class="rk-lb2" title="Leaderboard">🏆</button></div><p class="rk-msg"></p>`;
+  }
+  function setPage() { // the Settings tab: saved in this browser only, so everyone keeps their own keys
+    const keyName = rkKeyName;
+    const lanes = ['Left', 'Down', 'Up', 'Right'];
+    return '<div class="rk-setbox"><h3>Settings</h3><p class="rk-note">Saved on this computer only. In a multiplayer room everyone keeps their own keys and settings.</p>'
+      + `<h4>Keys</h4><p class="rk-note">Click a lane, then press the key you want for it. Esc cancels.</p><div class="rk-keyset big">${opt.keys.map((k, i) => `<button data-k="${i}" class="${binding === i ? 'on' : ''}"><small>${lanes[i]}</small>${binding === i ? 'Press a key…' : esc(keyName(k))}</button>`).join('')}</div>`
+      + `<button class="rk-keyreset">Reset keys to D F J K</button>`
+      + '<h4>Gameplay</h4>'
+      + `<label class="rk-row"><span>Scroll speed</span><input type="range" class="rk-speed" min="400" max="2200" step="50" value="${opt.speed}"><b class="rk-speed-v">${(opt.speed / 100).toFixed(1)}</b></label>`
+      + `<label class="rk-row"><span>Timing offset</span><input type="number" class="rk-off" value="${opt.offset}" step="5"> ms <small class="rk-note">raise it if notes feel early</small></label>`
+      + `<div class="rk-row"><span>Notes</span><div class="rk-seg"><button data-style="arrows" class="${opt.style === 'arrows' ? 'on' : ''}">Arrows</button><button data-style="bars" class="${opt.style === 'bars' ? 'on' : ''}">Bars</button></div></div></div>`;
   }
   function menu(msg = '') {
     stop(); game = null;
     q('.rk-play').hidden = true; menuEl.hidden = false; menuEl.dataset.view = 'select';
     songs.forEach(learn);
-    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><span class="rk-hint">↑ ↓ or scroll: song · ← → difficulty · Enter play</span></div>`
-      + `<div class="rk-cols"><div class="rk-left"><div class="rk-info"></div><div class="rk-settings"></div></div>`
+    const tab = menuEl.dataset.tab || 'songs';
+    menuEl.innerHTML = `<div class="rk-head"><span class="rk-logo">Rhythm<b>Keys</b></span><div class="rk-tabs"><button data-tab="songs">Songs</button><button data-tab="settings">Settings</button></div><span class="rk-hint">↑ ↓ or scroll: song · ← → difficulty · Enter play</span></div>`
+      + `<div class="rk-setpage"></div><div class="rk-cols"><div class="rk-left"><div class="rk-info"></div><div class="rk-settings"></div></div>`
       + `<div class="rk-wheel"><button class="rk-wbtn up" aria-label="Previous song">▲</button>${songs.map(card).join('')}<button class="rk-wbtn down" aria-label="Next song">▼</button></div></div>`;
     menuEl.querySelectorAll('.rk-card').forEach(b => b.onclick = () => select(songs[+b.dataset.i]));
     const step = d => { const i = songs.indexOf(song); select(songs[(i + d + songs.length) % songs.length]); };
     menuEl.querySelector('.rk-wbtn.up').onclick = () => step(-1); menuEl.querySelector('.rk-wbtn.down').onclick = () => step(1);
     let wheelT = 0; menuEl.querySelector('.rk-wheel').addEventListener('wheel', e => { e.preventDefault(); const now = performance.now(); if (now - wheelT < 140 || !e.deltaY) return; wheelT = now; step(e.deltaY > 0 ? 1 : -1); }, { passive: false });
-    placeWheel(); renderDetail(); if (msg) say(msg);
+    menuEl.querySelectorAll('.rk-tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+    placeWheel(); showTab(tab); if (msg) say(msg);
+  }
+  function showTab(t) {
+    menuEl.dataset.tab = t; binding = -1;
+    menuEl.querySelectorAll('.rk-tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    renderDetail();
   }
   function placeWheel() { // the chosen song sticks out in the middle; the others curve away above and below
     const cards = [...menuEl.querySelectorAll('.rk-card')], at = songs.indexOf(song);
@@ -4505,10 +4521,13 @@ function openRhythm() {
   }
   function renderDetail() {
     if (song) W.body.querySelector('.rk').style.setProperty('--sh', rkHue(rkTitle(song))); // the background glows in the song's colour
-    const box = menuEl.querySelector('.rk-left'); if (!box) return;
-    const msg = (box.querySelector('.rk-msg') || {}).textContent || '';
-    box.querySelector('.rk-info').innerHTML = info(); box.querySelector('.rk-settings').innerHTML = settings();
-    const m = box.querySelector('.rk-msg'); if (m && msg) m.textContent = msg;
+    const left = menuEl.querySelector('.rk-left'); if (!left) return;
+    const msg = (left.querySelector('.rk-msg') || {}).textContent || '';
+    left.querySelector('.rk-info').innerHTML = info(); left.querySelector('.rk-settings').innerHTML = settings();
+    menuEl.querySelector('.rk-setpage').innerHTML = setPage();
+    const box = menuEl;
+    const m = left.querySelector('.rk-msg'); if (m && msg) m.textContent = msg;
+    const kr = box.querySelector('.rk-keyreset'); if (kr) kr.onclick = () => { opt.keys = ['KeyD', 'KeyF', 'KeyJ', 'KeyK']; saveOpt(); renderDetail(); };
     box.querySelectorAll('.rk-pill').forEach(b => b.onclick = () => { diff = b.dataset.d; store.set('rk-diff', diff); refresh(); });
     box.querySelectorAll('[data-side]').forEach(b => b.onclick = () => { opt.side = b.dataset.side; saveOpt(); refresh(); });
     box.querySelectorAll('[data-style]').forEach(b => b.onclick = () => { opt.style = b.dataset.style; saveOpt(); renderDetail(); });
@@ -4625,7 +4644,7 @@ function openRhythm() {
       if (opt.style === 'arrows') arrow(x, JY, 30 * (1 - p * 0.12), l, game.held[l] ? hexA(laneColor(l), 0.55) : 'rgba(140,150,180,.25)', game.held[l] ? '#fff' : 'rgba(200,210,240,.6)');
       else { g.fillStyle = game.held[l] ? hexA(laneColor(l), 0.6) : 'rgba(140,150,180,.18)'; g.beginPath(); g.roundRect(x - LW / 2 + 6, JY - 11, LW - 12, 22, 7); g.fill(); g.strokeStyle = 'rgba(220,230,255,.6)'; g.lineWidth = 2; g.stroke(); }
       g.fillStyle = game.held[l] ? '#fff' : 'rgba(170,180,210,.7)'; g.font = 'bold 15px Segoe UI, sans-serif'; g.textAlign = 'center';
-      g.fillText(opt.keys[l].replace(/^Key/, '').replace(/^Digit/, ''), x, JY + 62);
+      g.fillText(rkKeyName(opt.keys[l]), x, JY + 62);
     }
     // notes (held notes draw their tail first)
     for (const n of game.notes) {
@@ -4834,6 +4853,7 @@ function openRhythm() {
     }
     if (e.type !== 'keydown' || menuEl.hidden) return;
     if (menuEl.dataset.view === 'result') { if (e.key === 'Enter') { e.preventDefault(); menuEl.querySelector('.rk-retry').click(); } else if (e.key === 'Escape') menu(); return; }
+    if (menuEl.dataset.tab === 'settings') { if (e.key === 'Escape') showTab('songs'); return; }
     const i = songs.indexOf(song), ds = diffsOf(song), di = ds.indexOf(pickDiff(song));
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); select(songs[(i + (e.key === 'ArrowDown' ? 1 : -1) + songs.length) % songs.length]); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); diff = ds[(di + (e.key === 'ArrowRight' ? 1 : -1) + ds.length) % ds.length]; store.set('rk-diff', diff); refresh(); }

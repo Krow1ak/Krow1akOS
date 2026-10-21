@@ -986,3 +986,4 @@ html.dark .dim,html.dark .mp-fine{color:#bcc6d2}
 html.dark .mx,html.dark #volpop .mx{background:#23272d;border-color:#3a414b;color:var(--ink)}
 html.dark .side h4{color:#b3d1f2}html.dark .side .sl{color:var(--ink)}html.dark .side .sl:hover{background:#2a3644}
 html.dark .fi .ic img.th{border-color:#3a414b;background:#2a2e35}
+.status .wcount{margin-right:auto}

@@ -216,6 +216,7 @@ const GUESS_WORDS = [];
    minesweeper()                           the Minesweeper game (Game > Daily challenge for the daily board)
    wordle()                                the daily Wordle
    paint()                                 Paint
+   notepad()                               Notepad you can type in (saved in the visitor's browser; shared in a room)
    pixelPaint()                            Pixel Paint (pixel art, animation frames, GIF export)
    pinball()                               Pinball
    snake()                                 Snake
@@ -301,6 +302,7 @@ const SUDOKU = sudoku();
 const GAMES = folder('Games', [LEADERBOARDS, MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TETRIS, AIR_HOCKEY, RHYTHM, GUESS, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
 
 const BROWSER_APP = browser();
+const NOTEPAD = notepad();
 
 const ABOUT = text('About me.txt');
 
@@ -311,7 +313,7 @@ const DISK = drive('Local Disk (C:)', '97.2 GB free of 256 GB', 0.62, [
 ]);
 
 /* What sits on the desktop, in order */
-const DESKTOP_ITEMS = [computer([DISK]), BROWSER_APP, ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
+const DESKTOP_ITEMS = [computer([DISK]), BROWSER_APP, NOTEPAD, ARTS, CHUCHA, MEMES, MUSIC, GAMES, ABOUT, RECYCLE_BIN];
 
 /* Window that opens when the page loads (set to null for none) */
 const OPEN_ON_START = null;   // e.g. ABOUT to open About me.txt
@@ -325,6 +327,7 @@ function video(name, src, opts = {}) { return { name, type: 'video', src, ...opt
 function minesweeper(opts = {}) { return { name: 'Minesweeper', type: 'minesweeper', ...opts }; }
 function wordle(opts = {}) { return { name: 'Wordle', type: 'wordle', ...opts }; }
 function paint(opts = {}) { return { name: 'Paint', type: 'paint', ...opts }; }
+function notepad(opts = {}) { return { name: 'Notepad', type: 'notepad', ...opts }; }
 function airHockey(opts = {}) { return { name: 'Air Hockey', type: 'airhockey', ...opts }; }
 function tetris(opts = {}) { return { name: 'Tetris', type: 'tetris', ...opts }; }
 function guessDrawing(opts = {}) { return { name: 'Guess the Drawing', type: 'guessdraw', ...opts }; }

@@ -41,14 +41,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', airhockey: 'Game', tetris: 'Game', guessdraw: 'Game', rhythm: 'Game', leaderboards: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', airhockey: 'Game', tetris: 'Game', guessdraw: 'Game', rhythm: 'Game', leaderboards: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', notepad: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, airhockey: I.airhockey, tetris: I.tetris, guessdraw: I.guessdraw, rhythm: I.rhythm, leaderboards: I.leaderboards, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, notepad: I.notepad, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, airhockey: I.airhockey, tetris: I.tetris, guessdraw: I.guessdraw, rhythm: I.rhythm, leaderboards: I.leaderboards, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -443,6 +443,7 @@ function openApp(n, folder) {
   if (n.type === 'guessdraw') return openGuessDraw();
   if (n.type === 'rhythm') return openRhythm();
   if (n.type === 'leaderboards') return openLeaderboards();
+  if (n.type === 'notepad') return openWriter();
   if (n.type === 'tictactoe') return openTicTacToe();
   if (n.type === 'connect4') return openConnectFour();
   if (n.type === 'checkers') return openCheckers();
@@ -554,6 +555,70 @@ function openNotepad(n) {
     View: [['Zoom In', () => setZoom(zoom + 10)], ['Zoom Out', () => setZoom(zoom - 10)], ['Restore Default Zoom', () => setZoom(100)]],
   };
   menuBar(W, W.body.querySelector('.menu'), menus);
+  return W;
+}
+
+// Notepad you can type in. The note is kept in the browser; in a multiplayer room everyone types in the
+// same note (each change goes out a moment later, and your cursor stays put when someone else's arrives).
+let writerWin = null;
+function openWriter() {
+  if (writerWin) { focusWin(writerWin); return writerWin; }
+  const W = makeWin({ title: 'Untitled - Notepad', icon: I.notepad, w: 600, h: 440 });
+  W.body.innerHTML = '<div class="menu"></div><textarea class="pad wr" spellcheck="false" aria-label="Notepad"></textarea><div class="status"><span class="wcount"></span><span class="pos">Ln 1, Col 1</span><span class="zm">100%</span></div>'
+    + '<input type="file" class="wr-file" accept=".txt,text/plain" hidden>';
+  const ta = W.body.querySelector('textarea'), file = W.body.querySelector('.wr-file');
+  const saved = store.get('notepad', { text: '', name: 'Untitled', zoom: 100, wrap: true });
+  let name = saved.name || 'Untitled', zoom = saved.zoom || 100, wrap = saved.wrap !== false, sendT = null, keepT = null;
+  ta.value = saved.text || '';
+  const keep = () => { clearTimeout(keepT); keepT = setTimeout(() => store.set('notepad', { text: ta.value, name, zoom, wrap }), 300); };
+  const title = () => W.setTitle(`${name} - Notepad`);
+  const status = () => {
+    const v = ta.value.slice(0, ta.selectionStart).split('\n'), words = (ta.value.match(/\S+/g) || []).length;
+    W.body.querySelector('.pos').textContent = `Ln ${v.length}, Col ${v[v.length - 1].length + 1}`;
+    W.body.querySelector('.wcount').textContent = `${words} word${words === 1 ? '' : 's'}, ${ta.value.length} character${ta.value.length === 1 ? '' : 's'}`;
+  };
+  const changed = () => { keep(); status(); clearTimeout(sendT); sendT = setTimeout(() => W.push(), 120); };
+  ['input', 'keyup', 'click', 'select'].forEach(ev => ta.addEventListener(ev, ev === 'input' ? changed : status));
+  const insert = text => { ta.focus(); ta.setRangeText(text, ta.selectionStart, ta.selectionEnd, 'end'); changed(); };
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'F5') { e.preventDefault(); insert(new Date().toLocaleString([], { hour: 'numeric', minute: '2-digit', year: 'numeric', month: 'numeric', day: 'numeric' })); } // like the real Notepad
+    else if (e.key === 'Tab') { e.preventDefault(); insert('\t'); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); saveAs(); }
+  });
+  const setZoom = v => { zoom = Math.max(50, Math.min(300, v)); ta.style.fontSize = 13 * zoom / 100 + 'px'; W.body.querySelector('.zm').textContent = zoom + '%'; keep(); };
+  const setWrap = v => { wrap = v; ta.classList.toggle('nowrap', !wrap); keep(); };
+  function newNote() { if (ta.value && !confirm('Start a new note? What you typed will be cleared.')) return; ta.value = ''; name = 'Untitled'; title(); changed(); ta.focus(); }
+  function saveAs() { // downloads a .txt file
+    const fn = (name === 'Untitled' ? 'note' : name).replace(/\.txt$/i, '') + '.txt';
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ta.value.replace(/\n/g, '\r\n')], { type: 'text/plain' })); a.download = fn; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  file.onchange = () => {
+    const f = file.files[0]; if (!f) return;
+    if (f.size > 500000) { toast('That file is too big for Notepad (500 KB max).'); file.value = ''; return; }
+    f.text().then(t => { ta.value = t.replace(/\r\n/g, '\n'); name = f.name; title(); changed(); file.value = ''; });
+  };
+  menuBar(W, W.body.querySelector('.menu'), {
+    File: [['New', newNote], ['Open…', () => file.click()], ['Save as .txt   Ctrl+S', saveAs], ['Close', () => closeWin(W)]],
+    Edit: [['Select All', () => { ta.focus(); ta.select(); }], ['Time/Date   F5', () => insert(new Date().toLocaleString([], { hour: 'numeric', minute: '2-digit', year: 'numeric', month: 'numeric', day: 'numeric' }))]],
+    Format: [['Word Wrap', () => setWrap(!wrap), () => wrap]],
+    View: [['Zoom In', () => setZoom(zoom + 10)], ['Zoom Out', () => setZoom(zoom - 10)], ['Restore Default Zoom', () => setZoom(100)]],
+  });
+  // someone else's text arrives: swap it in, keeping your cursor next to the same words
+  shareState(W, () => ({ text: ta.value, name }), d => {
+    if (typeof d.text !== 'string' || d.text === ta.value) return;
+    const old = ta.value, nv = d.text.slice(0, 200000), a = ta.selectionStart, b = ta.selectionEnd;
+    let p = 0; while (p < old.length && p < nv.length && old[p] === nv[p]) p++;
+    let q = 0; while (q < old.length - p && q < nv.length - p && old[old.length - 1 - q] === nv[nv.length - 1 - q]) q++;
+    const move = c => c <= p ? c : c >= old.length - q ? c + nv.length - old.length : p + (nv.length - q - p);
+    ta.value = nv; if (document.activeElement === ta) ta.setSelectionRange(move(a), move(b));
+    if (d.name) { name = d.name; title(); }
+    status(); if (!live() || W.owner === mp.self) keep();
+  });
+  W.onClose = () => { clearTimeout(sendT); if (keepT) { clearTimeout(keepT); store.set('notepad', { text: ta.value, name, zoom, wrap }); } writerWin = null; };
+  setZoom(zoom); setWrap(wrap); title(); status();
+  writerWin = W;
+  setTimeout(() => ta.focus(), 50);
   return W;
 }
 
@@ -5230,7 +5295,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'airhockey', 'tetris', 'guessdraw', 'rhythm', 'leaderboards', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'notepad', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'airhockey', 'tetris', 'guessdraw', 'rhythm', 'leaderboards', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

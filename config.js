@@ -166,12 +166,13 @@ const MULTIPLAYER = {
    They need a free Supabase project (supabase.com):
      1. New project (any name and password).
      2. SQL Editor > New query > paste everything from supabase-leaderboards.sql > Run.
-     3. Project Settings > API: copy the Project URL and the "anon public" key into url and key below.
+     3. Project Settings > API Keys: copy the Project URL and the publishable key (sb_publishable_..., or the older
+        "anon public" key) into url and key below. Never the secret/service_role key.
    The anon key is meant to be public; the database only lets it read scores and send new ones.
    Leave url empty to turn leaderboards off. */
 const LEADERBOARD = {
-  url: '',   // e.g. 'https://abcdefgh.supabase.co'
-  key: '',   // the long "anon public" key
+  url: 'https://ysmvmnvrwcgmwrpnteoy.supabase.co',
+  key: 'sb_publishable_wYhocJY6_i0zSGnBzmVryA_9kxIjApC',   // the publishable (or older "anon public") key
 };
 
 /* Special dates for the calendar (click the clock) */

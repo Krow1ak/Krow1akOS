@@ -4856,7 +4856,10 @@ const LB_GAMES = [
   { id: 'sudoku', name: 'Sudoku daily', icon: 'sudoku', daily: true, lower: true, board: (sel, day) => `sudoku:${day}`, fmt: v => lbTime(v), col: 'Time' },
 ];
 async function lbFetch(path, opts = {}) {
-  const r = await fetch(LEADERBOARD.url.replace(/\/+$/, '') + '/rest/v1/' + path, { ...opts, headers: { apikey: LEADERBOARD.key, Authorization: `Bearer ${LEADERBOARD.key}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+  const base = LEADERBOARD.url.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, ''), key = LEADERBOARD.key.trim();
+  // older "anon" keys are tokens that also go in Authorization; the newer sb_publishable_ keys only go in apikey
+  const auth = /^eyJ/.test(key) ? { Authorization: `Bearer ${key}` } : {};
+  const r = await fetch(base + '/rest/v1/' + path, { ...opts, headers: { apikey: key, ...auth, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
   if (!r.ok) throw new Error(`leaderboard ${r.status}`);
   return r;
 }

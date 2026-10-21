@@ -41,14 +41,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;',
 /* ---------- tree ---------- */
 const desktop = { name: 'Desktop', type: 'folder', children: DESKTOP_ITEMS };
 const isFolder = n => ['folder', 'computer', 'drive', 'bin'].includes(n.type);
-const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', airhockey: 'Game', tetris: 'Game', guessdraw: 'Game', rhythm: 'Game',  tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
+const typeName = n => ({ folder: 'File folder', computer: 'System folder', drive: 'Local Disk', bin: 'System folder', txt: 'Text Document', img: 'Picture', video: 'Video', minesweeper: 'Game', wordle: 'Game', pinball: 'Game', snake: 'Game', solitaire: 'Game', airhockey: 'Game', tetris: 'Game', guessdraw: 'Game', rhythm: 'Game', leaderboards: 'Game', tictactoe: 'Game', connect4: 'Game', checkers: 'Game', chess: 'Game', g2048: 'Game', sudoku: 'Game',  paint: 'Application', pixelpaint: 'Application', audio: 'Audio', browser: 'Application' })[n.type];
 function iconSrc(n) {
   if (n.icon) return n.icon;
   if (n.type === 'img') return n.src;
   if (n.type === 'video' && n.poster) return n.poster;
   if (n.type === 'folder') return n.art ? I.folderArts : I.folder;
   if (n.type === 'bin') return n.children.length ? I.binFull : I.binEmpty;
-  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, airhockey: I.airhockey, tetris: I.tetris, guessdraw: I.guessdraw, rhythm: I.rhythm,  tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
+  return { txt: I.textFile, computer: I.computer, drive: I.drive, video: I.video, minesweeper: I.minesweeper, wordle: I.wordle, paint: I.paint, pixelpaint: I.pixelpaint, pinball: I.pinball, snake: I.snake, solitaire: I.solitaire, airhockey: I.airhockey, tetris: I.tetris, guessdraw: I.guessdraw, rhythm: I.rhythm, leaderboards: I.leaderboards, tictactoe: I.tictactoe, connect4: I.connect4, checkers: I.checkers, chess: I.chess, g2048: I.g2048, sudoku: I.sudoku,  audio: I.music, browser: I.browser }[n.type] || I.textFile;
 }
 const isThumb = n => !n.icon && (n.type === 'img' || (n.type === 'video' && n.poster));
 const iconFor = n => img(iconSrc(n), isThumb(n) ? (n.pixel ? 'th px' : 'th') : 'ico');
@@ -441,6 +441,7 @@ function openApp(n, folder) {
   if (n.type === 'tetris') return openTetris();
   if (n.type === 'guessdraw') return openGuessDraw();
   if (n.type === 'rhythm') return openRhythm();
+  if (n.type === 'leaderboards') return openLeaderboards();
   if (n.type === 'tictactoe') return openTicTacToe();
   if (n.type === 'connect4') return openConnectFour();
   if (n.type === 'checkers') return openCheckers();
@@ -718,7 +719,7 @@ function openMinesweeper() {
     tickNext();
     const iv = setInterval(() => { if (note.isConnected && !note.hidden) tickNext(); else clearInterval(iv); }, 1000);
     const btns = add('div', ''); btns.className = 'ms-note-btns';
-    const lb = el('<button class="okbtn">Leaderboard</button>'); lb.onclick = () => openMsLeaderboard(level);
+    const lb = el('<button class="okbtn">Leaderboard</button>'); lb.onclick = () => lbOn() ? openLeaderboards('ms', { level }) : openMsLeaderboard(level);
     const fp = el('<button class="okbtn">Free play</button>'); fp.onclick = () => restart(level, false);
     btns.append(lb, fp);
   }
@@ -748,7 +749,11 @@ function openMinesweeper() {
       bombs: cells.filter(c => c.mine && c.flag).length,
       cleared: Math.round(opened / (cells.length - mines) * 1000) / 10 };
   }
-  function saveDaily(status, won = false) { if (daily) store.set(dailyKey(), { ...result(won), status }); }
+  function saveDaily(status, won = false) {
+    if (!daily) return;
+    const r = { ...result(won), status }; store.set(dailyKey(), r);
+    if (status === 'done' && lbSolo()) lbSubmit('ms', `ms:${today}:${level.toLowerCase()}`, won ? r.time / 1000 : 1e6 - r.bombs * 1000 - r.cleared, msSummary(r)); // wins by time, then mines found, then cleared
+  }
   function begin(i) {
     started = true;
     if (!daily) layMines(i);
@@ -853,7 +858,7 @@ function openMinesweeper() {
     Game: [['New', () => restart()],
       ...Object.keys(MS_LEVELS).map(lv => [lv, () => restart(lv), () => level === lv]),
       ['Daily challenge', () => restart(level, !daily), () => daily],
-      ['Leaderboard', () => openMsLeaderboard(level)],
+      ['Leaderboard', () => lbOn() ? openLeaderboards('ms', { level }) : openMsLeaderboard(level)],
       ['Close', () => closeWin(W)]],
   });
   const prev = W.onClose;
@@ -987,7 +992,7 @@ function openWordle() {
     cur = '';
     store.set(`wordle2:${today}`, state);
     render(); W.push();
-    if (state.done) finish();
+    if (state.done) { finish(); if (lbSolo()) lbSubmit('wordle', `wordle:${today}`, state.won ? state.guesses.length : 7, `${state.won ? state.guesses.length : 'X'}/6`); }
   }
   function finish() {
     const st = store.get('wordle-stats', { played: 0, wins: 0, streak: 0, maxStreak: 0, dist: [0, 0, 0, 0, 0, 0, 0], lastWin: null });
@@ -1012,7 +1017,9 @@ function openWordle() {
       + '<h3>Won in how many guesses</h3><div class="wd-dist">'
       + [1, 2, 3, 4, 5, 6, 0].map(n => `<div class="wd-bar${n === todayRow ? ' today' : ''}"><span>${n || 'X'}</span><i style="width:${Math.max(8, st.dist[n] / most * 100)}%">${st.dist[n]}</i><em>${pct(st.dist[n])}%</em></div>`).join('')
       + '</div><p class="dim">Percent of all your games. X = not solved.</p>'
-      + (state.done ? '<div class="wd-end"><span class="wd-next"></span><button class="okbtn wd-share">Share</button></div>' : '');
+      + (state.done ? '<div class="wd-end"><span class="wd-next"></span><button class="okbtn wd-share">Share</button></div>' : '')
+      + '<button class="okbtn wd-lb">🏆 Leaderboard</button>';
+    panel.querySelector('.wd-lb').onclick = () => openLeaderboards('wordle');
     panel.querySelector('.wd-x').onclick = () => { panel.hidden = true; clearInterval(clock); };
     clearInterval(clock);
     const next = panel.querySelector('.wd-next');
@@ -1539,7 +1546,7 @@ function openPinball() {
   const W = makeWin({ title: '3D Pinball', icon: I.pinball, w: 620, h: 700 });
   W.body.innerHTML = '<div class="pb"><div class="pb-main"><div class="pb-wrap"><canvas class="pb-c" width="360" height="600" aria-label="Pinball table"></canvas></div>'
     + '<div class="pb-panel"><canvas class="pb-logo" width="200" height="150" aria-hidden="true"></canvas><div class="pb-ballrow">BALL <b class="pb-ball">1</b></div>'
-    + '<div class="pb-scorerow"><b class="pb-player">1</b><b class="pb-score">0</b></div><div class="pb-msg" role="status"></div><div class="pb-info"></div></div></div>'
+    + '<div class="pb-scorerow"><b class="pb-player">1</b><b class="pb-score">0</b></div><div class="pb-msg" role="status"></div><div class="pb-info"></div><button class="pb-lb">🏆 Leaderboard</button></div></div>'
     + '<div class="pb-help">Z or ← left flipper · / or → right flipper · hold Space to launch · F3 pause<br>Touch: tap left/right half for flippers, hold to launch</div></div>';
   const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
   const path = pts => pts.slice(1).map((p, k) => [...pts[k], ...p]);
@@ -1602,11 +1609,12 @@ function openPinball() {
     fx.texts.push({ text, x, y, color, size, t: 0 }); if (fx.texts.length > 8) fx.texts.shift();
   };
   const MILESTONES = [5000, 10000, 25000, 50000, 100000];
+  let helped = false; // someone else pressed the flippers: not a leaderboard game
   let extra = [], lanes = [0, 0, 0], targets = [1, 1, 1], targetsBack = 0, mult = 1, bonus = 0, holeLit = false, locks = 0, held = null, saveUntil = 0;
   let rank = 0, mission = null, missionNext = 0, gt = 0, rocketFlash = 0, rocketT = 0, skillLane = -1, skillUntil = 0, ann = null, annN = 0;
   const resetBall = () => { ball = { x: 335, y: 562, vx: 0, vy: 0, onPlunger: true, inLane: true, lane: -1 }; charge = 0; };
   function newGame() {
-    score = 0; balls = 3; over = false; resetBall(); extra = []; held = null;
+    score = 0; balls = 3; over = false; resetBall(); extra = []; held = null; helped = false;
     lanes = [0, 0, 0]; targets = [1, 1, 1]; mult = 1; bonus = 0; holeLit = false; locks = 0; rank = 0; mission = null; missionNext = 0; gt = 0;
   }
   // a message for everyone at the table: shown here and sent with the table so watchers see it too
@@ -1720,6 +1728,7 @@ function openPinball() {
     balls--;
     if (balls > 0) return resetBall();
     over = true; resetBall(); mission = null;
+    if (!helped && score > 0 && isLead(W)) lbSubmit('pinball', 'pinball', score, `${rankName(rank)} · ${rank} missions`);
     if (score > best) { best = score; store.set('pinball-best', best); }
     W.push();
   }
@@ -1897,6 +1906,7 @@ function openPinball() {
     if (panel.msg.textContent !== msg) panel.msg.textContent = msg;
     if (panel.info.textContent !== info) panel.info.textContent = info;
   }
+  W.body.querySelector('.pb-lb').onclick = () => openLeaderboards('pinball');
   const panel = { ball: W.body.querySelector('.pb-ball'), score: W.body.querySelector('.pb-score'), msg: W.body.querySelector('.pb-msg'), info: W.body.querySelector('.pb-info') };
   (function paintLogo() { // the title card: space backdrop, rings and the name in big purple letters
     const lc = W.body.querySelector('.pb-logo'), a = lc.getContext('2d'), rnd = seededRandom('pinball-logo');
@@ -1949,7 +1959,7 @@ function openPinball() {
     W.push();
   };
   const togglePause = () => { if (!isLead(W)) return sendInput(W, { pause: 1 }); if (!over) paused = !paused; W.push(); };
-  W.onInput = d => { if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); if (d.pause) togglePause(); };
+  W.onInput = d => { if (d.flip || d.plunge) helped = true; if (d.flip) flip(...d.flip); if (d.plunge != null) plunge(d.plunge); if (d.pause) togglePause(); };
   shareState(W, () => ({ b: [ball.x, ball.y, ball.onPlunger, ball.inLane], f: flippers.map(f => f.a), fl: bumpers.map(b => b.flash), score, balls, over, charge, charging, paused,
     x: extra.map(b => [Math.round(b.x), Math.round(b.y)]), lanes, targets, mult, bonus, holeLit, held: !!held, rank, rf: rocketFlash, sk: gt < skillUntil ? skillLane : -1,
     m: mission ? [mission.k, mission.prog, mission.goal, Math.ceil(mission.left)] : null, ann }), d => {
@@ -2004,12 +2014,13 @@ function openSnake() {
   if (snWin) { focusWin(snWin); return snWin; }
   const N = 20, C = 20, S = N * C;
   const W = makeWin({ title: 'Snake', icon: I.snake, w: 440, h: 540 });
-  W.body.innerHTML = `<div class="sn"><div class="sn-top"><span class="sn-score"></span><span class="sn-best"></span></div><div class="sn-wrap"><canvas class="sn-c" width="${S}" height="${S}" aria-label="Snake board"></canvas></div>`
+  W.body.innerHTML = `<div class="sn"><div class="sn-top"><span class="sn-score"></span><span class="sn-best"></span><button class="tbtn sn-lb">🏆</button></div><div class="sn-wrap"><canvas class="sn-c" width="${S}" height="${S}" aria-label="Snake board"></canvas></div>`
     + '<div class="sn-help">Arrow keys or WASD to steer · P or Space to pause<br>Touch: swipe to steer, tap to start</div></div>';
   const cv = W.body.querySelector('canvas'), g = cv.getContext('2d');
   const scoreEl = W.body.querySelector('.sn-score'), bestEl = W.body.querySelector('.sn-best');
+  W.body.querySelector('.sn-lb').onclick = () => openLeaderboards('snake'); W.body.querySelector('.sn-lb').title = 'Leaderboard';
   const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-  let snake, dir, queue, food, score, best = store.get('snake-best', 0), state, acc = 0, last = 0, raf = 0, dirty = false;
+  let snake, dir, queue, food, score, best = store.get('snake-best', 0), state, acc = 0, last = 0, raf = 0, dirty = false, helped = false; // helped: someone else steered
   const speed = () => Math.max(60, 140 - score / 10 * 4); // ms per step, faster with every apple
   function placeFood() {
     const free = [];
@@ -2017,7 +2028,7 @@ function openSnake() {
     food = free[Math.floor(Math.random() * free.length)];
   }
   function newGame() {
-    snake = [[8, 10], [7, 10], [6, 10]]; dir = DIRS.right; queue = []; score = 0; state = 'ready'; acc = 0;
+    snake = [[8, 10], [7, 10], [6, 10]]; dir = DIRS.right; queue = []; score = 0; state = 'ready'; acc = 0; helped = false;
     placeFood(); updateText(); dirty = true;
   }
   function updateText() { scoreEl.textContent = `Score ${score}`; bestEl.textContent = `Best ${best}`; }
@@ -2037,6 +2048,7 @@ function openSnake() {
     if (head[0] < 0 || head[1] < 0 || head[0] >= N || head[1] >= N || body.some(p => p[0] === head[0] && p[1] === head[1])) {
       state = 'over'; dirty = true;
       if (score > best) { best = score; store.set('snake-best', best); }
+      if (!helped && score > 0 && isLead(W)) lbSubmit('snake', 'snake', score, `length ${snake.length}`);
       updateText(); return;
     }
     snake = [head, ...body]; dirty = true;
@@ -2086,7 +2098,7 @@ function openSnake() {
   };
   const resume = () => { if (state === 'paused') pause(); };
   // in a room the opener's computer runs the game; everyone else sends their keys and sees the board
-  W.onInput = d => { if (d.turn) { resume(); turn(d.turn); } if (d.pause) pause(); };
+  W.onInput = d => { if (d.turn) { helped = true; resume(); turn(d.turn); } if (d.pause) pause(); };
   shareState(W, () => ({ snake, dir, food, score, state }), d => {
     ({ snake, food, score, state } = d); dir = Object.values(DIRS).find(v => v[0] === d.dir[0] && v[1] === d.dir[1]);
     if (state === 'over' && score > best) { best = score; store.set('snake-best', best); }
@@ -2994,6 +3006,7 @@ function openSudoku() {
     if (st.vals.every((v, k) => v === sol[k])) {
       st.done = true; st.time = elapsed(); st.t0 = 0;
       const best = store.get('sudoku-best', null); if (best == null || st.time < best) store.set('sudoku-best', st.time);
+      if (st.daily && lbSolo()) lbSubmit('sudoku', `sudoku:${st.day}`, st.time, `solved in ${lbTime(st.time)}`);
     }
     save(); draw(); W.push();
   }
@@ -3017,7 +3030,7 @@ function openSudoku() {
   };
   document.addEventListener('keydown', onKey);
   menuBar(W, q('.menu'), {
-    Game: [['Daily puzzle', () => newPuzzle(true), () => st.daily], ['New random puzzle', () => newPuzzle(false), () => !st.daily], ['Close', () => closeWin(W)]],
+    Game: [['Daily puzzle', () => newPuzzle(true), () => st.daily], ['New random puzzle', () => newPuzzle(false), () => !st.daily], ['Leaderboard', () => openLeaderboards('sudoku')], ['Close', () => closeWin(W)]],
   });
   const prev = W.onClose;
   W.onClose = () => { prev && prev(); document.removeEventListener('keydown', onKey); clearInterval(timer); if (st && !st.done) save(); sdWin = null; };
@@ -3689,7 +3702,7 @@ function openTetris() {
   const COLS = 10, ROWS = 20, HID = 2, CELL = 26;
   const W = makeWin({ title: 'Tetris', icon: I.tetris, w: 640, h: 640 });
   W.body.innerHTML = '<div class="tt"><div class="tt-side"><h4>Hold</h4><canvas class="tt-hold" width="104" height="70"></canvas><div class="tt-stats"></div>'
-    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button><button class="okbtn tt-share" hidden></button><button class="okbtn tt-set">Settings</button></div></div>'
+    + '<div class="tt-btns"><button class="okbtn tt-solo">New game</button><button class="okbtn tt-vs" hidden>Versus room</button><button class="okbtn tt-share" hidden></button><button class="okbtn tt-set">Settings</button><button class="okbtn tt-lb">🏆 Leaderboard</button></div></div>'
     + '<div class="tt-mid"><canvas class="tt-c" width="260" height="520" aria-label="Tetris board"></canvas><div class="tt-note"></div></div>'
     + '<div class="tt-side"><h4>Next</h4><canvas class="tt-next" width="104" height="260"></canvas><div class="tt-opps"></div></div>'
     + '<div class="tt-touch"><button data-k="left">◀</button><button data-k="rot">⟳</button><button data-k="right">▶</button><button data-k="soft">▼</button><button data-k="drop">⤓</button><button data-k="hold">Hold</button></div>'
@@ -3703,6 +3716,8 @@ function openTetris() {
   // watching: in a room, people who aren't playing see someone else's game live (sent ~10 times a second);
   // the player can let the watchers press keys too
   const remoteOpen = !!mp.incoming && live();
+  let helped = false; // someone else pressed keys in this game: it doesn't go on the leaderboard
+  const lbSolo2 = () => true; // a Tetris game is your own even in a room, unless you let others play
   let idle = remoteOpen, viewing = null, allowCtrl = false, vfx = newFx(), soloT = 0, outbox = [];
   const views = new Map(); // id -> { v: their latest board, at }
   const pop = (text, color = '#fff', size = 22) => {
@@ -3739,7 +3754,7 @@ function openTetris() {
   function start(seed) {
     grid = empty(); rnd = seed != null ? seededRandom('tetris|' + seed) : Math.random; queue = []; hold = null; score = 0; lines = 0; level = 1; over = false; paused = false; dropT = 0; junk = 0;
     combo = -1; b2b = false; Object.assign(fx, { parts: [], flashes: [], texts: [], trails: [], shake: 0, glow: 0, hit: 0, deadAt: 0 }); won = false;
-    idle = false; viewing = null;
+    idle = false; viewing = null; helped = false;
     spawn(nextPiece()); draw();
   }
   const fits = (x, y, r, t = cur.t) => ttCells(t, r).every(([cx, cy]) => { const X = x + cx, Y = y + cy; return X >= 0 && X < COLS && Y < ROWS + HID && (Y < 0 || !grid[Y][X]); });
@@ -3821,6 +3836,7 @@ function openTetris() {
   }
   function gameOver() {
     if (over) return;
+    if (!versus && !idle && !helped && score > 0 && lbSolo2()) lbSubmit('tetris', 'tetris', score, `${lines} lines · level ${level}`);
     over = true; fx.deadAt = performance.now(); fx.shake = Math.max(fx.shake, 8); SFX.over();
     if (!versus && score > best) { best = score; store.set('tetris-best', best); }
     share(); draw();
@@ -3876,7 +3892,7 @@ function openTetris() {
   }
   shareState(W, () => ({}), d => {
     if (d.solo) seeSolo(d.solo);
-    else if (d.ctl && d.ctl.to === mp.self && allowCtrl && !idle && !versus) { if (d.ctl.down) press(d.ctl.k); else release(d.ctl.k); } // a watcher's key
+    else if (d.ctl && d.ctl.to === mp.self && allowCtrl && !idle && !versus) { helped = true; if (d.ctl.down) press(d.ctl.k); else release(d.ctl.k); } // a watcher's key
     else if (d.start) beginVersus(d.start);
     else if (d.vs && versus && d.vs.round === versus.round && d.vs.id !== mp.self) {
       const was = opps.get(d.vs.id); opps.set(d.vs.id, d.vs);
@@ -4063,6 +4079,7 @@ function openTetris() {
   };
   document.addEventListener('keydown', onBind, true);
   q('.tt-set').onclick = openCfg;
+  q('.tt-lb').onclick = () => openLeaderboards('tetris');
   help();
   const keys = { left: null, right: null, soft: false };
   const press = k => {
@@ -4684,6 +4701,7 @@ function openRhythm() {
     if (isBest) store.set(bestKey(game.s, game.d), { score: game.score, grade: gr, acc: +acc.toFixed(2), combo: game.maxCombo });
     if (together) W.push({ live: { tog: together.id, id: mp.self, name: me.name, color: me.color, score: game.score, acc, done: true } });
     else if (live()) W.push({ rw: { id: mp.self, run: game.run, end: true, name: me.name, score: game.score, acc, grade: gr } });
+    if (game.score > 0) lbSubmit('rhythm', `rk:${lbSlug(game.s.src)}:${game.d.toLowerCase()}:${game.side === 'opp' ? 'opp' : 'player'}`, game.score, `${acc.toFixed(2)}% · ${gr} · ${game.maxCombo}x`);
     const c = game.counts, total = Math.max(1, c.Perfect + c.Great + c.Good + c.Miss);
     // how early or late the hits were, in 10 ms buckets
     const bucket = new Array(31).fill(0); (game.allErrs || []).forEach(e => { bucket[Math.max(0, Math.min(30, Math.round(e / 10) + 15))]++; });
@@ -4694,11 +4712,12 @@ function openRhythm() {
       + `<div class="rk-res"><div><small>Accuracy</small><b>${acc.toFixed(2)}%</b></div><div><small>Max combo</small><b>${game.maxCombo}x</b></div><div><small>Timing</small><b>${errs.length ? (mean < 0 ? `${Math.round(-mean)}ms early` : `${Math.round(mean)}ms late`) : '–'}</b></div></div></div></div>`
       + `<div class="rk-counts">${[['Perfect', '#7df9ff'], ['Great', '#7dff8a'], ['Good', '#ffe066'], ['Miss', '#ff5a5a']].map(([k, col]) => `<div><span style="color:${col}">${k}</span><i><em style="width:${c[k] / total * 100}%;background:${col}"></em></i><b>${c[k]}</b></div>`).join('')}</div>`
       + `<div class="rk-hist" title="How early (left) or late (right) your hits were">${bucket.map((v, i) => `<i style="height:${v / peak * 100}%;background:${Math.abs(i - 15) <= 4 ? '#7df9ff' : Math.abs(i - 15) <= 8 ? '#7dff8a' : '#ffe066'}"></i>`).join('')}<span>early</span><span>late</span></div>`
-      + `<div class="rk-live2"></div><div class="rk-go"><button class="rk-retry">↻ Retry</button><button class="rk-back">Song list</button></div></div>`;
+      + `<div class="rk-live2"></div><div class="rk-go"><button class="rk-retry">↻ Retry</button><button class="rk-back">Song list</button><button class="rk-lb">🏆 Leaderboard</button></div></div>`;
     const lv = menuEl.querySelector('.rk-live2'); if (lv && together) lv.innerHTML = q('.rk-live').innerHTML;
     const s = game.s, d = game.d;
     menuEl.querySelector('.rk-retry').onclick = () => play(s, d, null);
     menuEl.querySelector('.rk-back').onclick = () => menu();
+    menuEl.querySelector('.rk-lb').onclick = () => openLeaderboards('rhythm', { song: lbSlug(s.src), diff: d.toLowerCase(), side: game && game.side === 'opp' ? 'opp' : 'player' });
     setMusic(true);
   }
   function stop() {
@@ -4817,6 +4836,108 @@ function openRhythm() {
   return W;
 }
 const hexA = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${Math.max(0, Math.min(1, a))})`; };
+
+/* ---------- leaderboards ---------- */
+// Online high scores, kept in a Supabase database (see LEADERBOARD in config.js). Each person keeps one
+// row per board, their best. Only scores from games played alone count: nobody else's keys or moves.
+const lbOn = () => !!(typeof LEADERBOARD === 'object' && LEADERBOARD.url && LEADERBOARD.key);
+const lbPlayer = store.get('lb-id', null) || (() => { const id = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => (b % 36).toString(36)).join(''); store.set('lb-id', id); return id; })();
+const lbName = () => (store.get('lb-name', '') || me.name).slice(0, 24);
+const lbSolo = () => !live() || mp.peers.size === 0;
+const lbSlug = t => String(t).toLowerCase().replace(/^.*\//, '').replace(/[^a-z0-9._-]+/g, '-').slice(0, 60);
+const lbTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const LB_GAMES = [
+  { id: 'tetris', name: 'Tetris', icon: 'tetris', board: () => 'tetris', fmt: v => v.toLocaleString(), col: 'Score' },
+  { id: 'rhythm', name: 'Rhythm Keys', icon: 'rhythm', board: sel => `rk:${sel.song}:${sel.diff}:${sel.side}`, fmt: v => v.toLocaleString(), col: 'Score' },
+  { id: 'pinball', name: 'Pinball', icon: 'pinball', board: () => 'pinball', fmt: v => v.toLocaleString(), col: 'Score' },
+  { id: 'snake', name: 'Snake', icon: 'snake', board: () => 'snake', fmt: v => v.toLocaleString(), col: 'Score' },
+  { id: 'ms', name: 'Minesweeper daily', icon: 'minesweeper', daily: true, lower: true, board: (sel, day) => `ms:${day}:${sel.level.toLowerCase()}`, fmt: (v, r) => r.detail || '', col: 'Result' },
+  { id: 'wordle', name: 'Wordle', icon: 'wordle', daily: true, lower: true, board: (sel, day) => `wordle:${day}`, fmt: (v, r) => r.detail || '', col: 'Guesses' },
+  { id: 'sudoku', name: 'Sudoku daily', icon: 'sudoku', daily: true, lower: true, board: (sel, day) => `sudoku:${day}`, fmt: v => lbTime(v), col: 'Time' },
+];
+async function lbFetch(path, opts = {}) {
+  const r = await fetch(LEADERBOARD.url.replace(/\/+$/, '') + '/rest/v1/' + path, { ...opts, headers: { apikey: LEADERBOARD.key, Authorization: `Bearer ${LEADERBOARD.key}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+  if (!r.ok) throw new Error(`leaderboard ${r.status}`);
+  return r;
+}
+async function lbTop(board, lower, limit = 50) {
+  const r = await lbFetch(`scores?board=eq.${encodeURIComponent(board)}&select=name,score,detail,created_at,player&order=score.${lower ? 'asc' : 'desc'},created_at.asc&limit=${limit}`);
+  return r.json();
+}
+async function lbRank(board, lower) { // where my best on this board stands
+  const mine = await (await lbFetch(`scores?board=eq.${encodeURIComponent(board)}&player=eq.${lbPlayer}&select=score`)).json();
+  if (!mine.length) return null;
+  const r = await lbFetch(`scores?board=eq.${encodeURIComponent(board)}&score=${lower ? 'lt' : 'gt'}.${mine[0].score}&select=id`, { headers: { Prefer: 'count=exact', Range: '0-0' } });
+  const total = +((r.headers.get('content-range') || '').split('/')[1] || 0);
+  return { rank: total + 1, score: mine[0].score };
+}
+async function lbSubmit(gameId, board, score, detail = '') {
+  if (!lbOn() || !Number.isFinite(score)) return;
+  const G = LB_GAMES.find(x => x.id === gameId);
+  try {
+    const before = await lbRank(board, G.lower).catch(() => null);
+    await lbFetch('rpc/submit_score', { method: 'POST', body: JSON.stringify({ p_board: board, p_player: lbPlayer, p_name: lbName(), p_score: score, p_detail: String(detail).slice(0, 80), p_lower: !!G.lower }) });
+    const now = await lbRank(board, G.lower);
+    const better = !before || now.score !== before.score;
+    if (now) toast(better ? `🏆 ${G.name}: new best, you're #${now.rank} on the leaderboard!` : `🏆 ${G.name}: your best is still #${now.rank} on the leaderboard`);
+    if (lbWin) lbWin.refresh();
+  } catch { toast(`Couldn't send your ${G.name} score to the leaderboard.`); }
+}
+let lbWin = null;
+function openLeaderboards(gameId = store.get('lb-game', 'tetris'), sel = {}) {
+  if (lbWin) { lbWin.show(gameId, sel); focusWin(lbWin); return lbWin; }
+  const W = makeWin({ title: 'Leaderboards', icon: I.leaderboards, w: 720, h: 520 });
+  W.body.innerHTML = '<div class="lbx"><nav class="lbx-games"></nav><div class="lbx-main"><div class="lbx-head"></div><div class="lbx-list"></div>'
+    + '<div class="lbx-foot"><label>Your name on the leaderboards <input class="lbx-name" maxlength="24"></label><button class="okbtn lbx-ref">Refresh</button></div></div></div>';
+  const q = x => W.body.querySelector(x);
+  const songs = []; (function walk(n) { (n.children || []).forEach(c => { if (c.type === 'audio' && !songs.some(t => t.src === c.src)) songs.push(c); else if (c.children) walk(c); }); })(desktop);
+  let game = gameId, day = dayKey(), opt = { level: 'Beginner', song: songs[0] ? lbSlug(songs[0].src) : '', diff: 'normal', side: 'player' }, ask = 0;
+  q('.lbx-games').innerHTML = LB_GAMES.map(G => `<button data-g="${G.id}">${img(I[G.icon] || I.leaderboards, '')}<span>${esc(G.name)}</span></button>`).join('');
+  q('.lbx-games').querySelectorAll('button').forEach(b => b.onclick = () => W.show(b.dataset.g));
+  const name = q('.lbx-name'); name.value = lbName(); name.onchange = () => { store.set('lb-name', name.value.trim().slice(0, 24)); name.value = lbName(); };
+  q('.lbx-ref').onclick = () => W.refresh();
+  function head() {
+    const G = LB_GAMES.find(x => x.id === game);
+    let h = `<h3>${esc(G.name)}</h3>`;
+    if (G.daily) h += `<div class="lbx-day"><button data-d="-1" aria-label="Day before">◀</button><span>${day === dayKey() ? 'Today' : esc(day)}</span><button data-d="1" aria-label="Next day"${day >= dayKey() ? ' disabled' : ''}>▶</button></div>`;
+    if (G.id === 'ms') h += `<div class="lbx-opts">${Object.keys(MS_LEVELS).map(l => `<button class="tbtn${l === opt.level ? ' on' : ''}" data-level="${l}">${l}</button>`).join('')}</div>`;
+    if (G.id === 'rhythm') {
+      const s = songs.find(x => lbSlug(x.src) === opt.song), diffs = s && s.chart ? ['chart'] : Object.keys(RK_DIFF).map(d => d.toLowerCase());
+      if (s && !diffs.includes(opt.diff)) opt.diff = diffs[0];
+      h += `<div class="lbx-opts"><select class="lbx-song">${songs.map(x => `<option value="${esc(lbSlug(x.src))}"${lbSlug(x.src) === opt.song ? ' selected' : ''}>${esc(x.name.replace(/\.[^.]+$/, ''))}</option>`).join('')}</select>`
+        + `<select class="lbx-diff">${diffs.map(d => `<option${d === opt.diff ? ' selected' : ''} value="${d}">${d[0].toUpperCase() + d.slice(1)}</option>`).join('')}</select>`
+        + (s && s.chart ? `<select class="lbx-side"><option value="player"${opt.side === 'player' ? ' selected' : ''}>Boyfriend</option><option value="opp"${opt.side === 'opp' ? ' selected' : ''}>Opponent</option></select>` : '') + '</div>';
+    }
+    q('.lbx-head').innerHTML = h;
+    q('.lbx-head').querySelectorAll('[data-d]').forEach(b => b.onclick = () => { day = dayKey(new Date(Date.parse(day) + +b.dataset.d * 864e5)); W.refresh(); });
+    q('.lbx-head').querySelectorAll('[data-level]').forEach(b => b.onclick = () => { opt.level = b.dataset.level; W.refresh(); });
+    const so = q('.lbx-song'); if (so) so.onchange = () => { opt.song = so.value; W.refresh(); };
+    const di = q('.lbx-diff'); if (di) di.onchange = () => { opt.diff = di.value; W.refresh(); };
+    const si = q('.lbx-side'); if (si) si.onchange = () => { opt.side = si.value; W.refresh(); };
+  }
+  W.refresh = async () => {
+    head();
+    const G = LB_GAMES.find(x => x.id === game), list = q('.lbx-list'), my = ++ask;
+    q('.lbx-games').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.g === game));
+    if (!lbOn()) { list.innerHTML = '<div class="lbx-msg">Leaderboards aren\'t set up yet.<br><br>The site owner needs a free Supabase project: see LEADERBOARD in config.js for the three steps.</div>'; return; }
+    list.innerHTML = '<div class="lbx-msg">Loading…</div>';
+    try {
+      const board = G.board(opt, day), rows = await lbTop(board, G.lower), me2 = rows.findIndex(r => r.player === lbPlayer);
+      if (my !== ask) return;
+      if (!rows.length) { list.innerHTML = `<div class="lbx-msg">No scores here yet${G.daily && day === dayKey() ? ' today' : ''}. Be the first!</div>`; return; }
+      let extra = '';
+      if (me2 < 0) { const r = await lbRank(board, G.lower).catch(() => null); if (my !== ask) return; if (r) extra = `<tr class="me"><td>${r.rank}</td><td>${esc(lbName())} (you)</td><td>${esc(G.fmt(r.score, {}))}</td><td></td><td></td></tr>`; }
+      const medal = k => ['🥇', '🥈', '🥉'][k] || k + 1;
+      list.innerHTML = `<table class="lbx-table"><thead><tr><th>#</th><th>Name</th><th>${G.col}</th><th>Details</th><th>When</th></tr></thead><tbody>`
+        + rows.map((r, k) => `<tr${r.player === lbPlayer ? ' class="me"' : ''}><td>${medal(k)}</td><td>${esc(r.name)}${r.player === lbPlayer ? ' (you)' : ''}</td><td>${esc(G.fmt(r.score, r))}</td><td>${G.id === 'wordle' || G.id === 'ms' ? '' : esc(r.detail || '')}</td><td>${esc(new Date(r.created_at).toLocaleDateString())}</td></tr>`).join('')
+        + (extra ? '<tr class="gap"><td colspan="5">…</td></tr>' + extra : '') + '</tbody></table>';
+    } catch (e) { if (my === ask) list.innerHTML = `<div class="lbx-msg">Couldn't load the leaderboard (${esc(e.message)}).</div>`; }
+  };
+  W.show = (g, s2 = {}) => { if (LB_GAMES.some(x => x.id === g)) game = g; store.set('lb-game', game); Object.assign(opt, s2); if (s2.day) day = s2.day; W.refresh(); };
+  W.onClose = () => { lbWin = null; };
+  lbWin = W; W.show(gameId, sel);
+  return W;
+}
 
 /* ---------- settings ---------- */
 const RESOLUTIONS = [['Widescreen 16:9', [[1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]],
@@ -5008,7 +5129,7 @@ layout();
 const start = document.getElementById('start'), orb = document.getElementById('orb');
 const closeStart = () => { start.hidden = true; orb.classList.remove('on'); };
 document.getElementById('sm-user').innerHTML = img(ASSETS.avatar, '') + `<span>${esc(OWNER_NAME)}</span>`;
-const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'airhockey', 'tetris', 'guessdraw', 'rhythm', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
+const leftItems = DESKTOP_ITEMS.filter(n => ['folder', 'txt', 'minesweeper', 'wordle', 'paint', 'pixelpaint', 'pinball', 'snake', 'solitaire', 'airhockey', 'tetris', 'guessdraw', 'rhythm', 'leaderboards', 'tictactoe', 'connect4', 'checkers', 'chess', 'g2048', 'sudoku', 'video', 'audio', 'browser'].includes(n.type))
   .map(n => [n, n.children ? `${n.children.length} items` : typeName(n)]);
 const smLeft = document.getElementById('sm-left');
 leftItems.forEach(([n, sub]) => {

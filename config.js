@@ -44,6 +44,7 @@ const ASSETS = {
     tetris:      'assets/icons/tetris.png',
     guessdraw:   'assets/icons/guessdraw.png',
     rhythm:      'assets/icons/rhythm.png',
+    leaderboards: 'assets/icons/leaderboards.png',
     tictactoe:   'assets/icons/tictactoe.png',
     connect4:    'assets/icons/connect4.png',
     checkers:    'assets/icons/checkers.png',
@@ -160,6 +161,19 @@ const MULTIPLAYER = {
   ],
 };
 
+/* ---------- LEADERBOARDS ----------
+   Online high scores for Tetris, Rhythm Keys, Pinball, Snake and the daily Minesweeper, Wordle and Sudoku.
+   They need a free Supabase project (supabase.com):
+     1. New project (any name and password).
+     2. SQL Editor > New query > paste everything from supabase-leaderboards.sql > Run.
+     3. Project Settings > API: copy the Project URL and the "anon public" key into url and key below.
+   The anon key is meant to be public; the database only lets it read scores and send new ones.
+   Leave url empty to turn leaderboards off. */
+const LEADERBOARD = {
+  url: '',   // e.g. 'https://abcdefgh.supabase.co'
+  key: '',   // the long "anon public" key
+};
+
 /* Special dates for the calendar (click the clock) */
 const DATES_FILE = 'content/dates.txt';
 
@@ -211,6 +225,7 @@ const GUESS_WORDS = [];
    tetris()                                Tetris (solo, or Versus in a multiplayer room)
    guessDrawing()                          Guess the Drawing (2+ people in a room; add words in GUESS_WORDS below)
    rhythm()                                Rhythm Keys (play the songs in the Music folder with D F J K)
+   leaderboards()                          Leaderboards (online high scores; set up LEADERBOARD below)
    sudoku()                                the daily Sudoku (Game > New random puzzle for free play)
    browser()                               the web browser (home page and bookmarks are in BROWSER above)
    audio('song.mp3', 'assets/music/song.mp3')   a song; double-click plays it (mp3, ogg or wav)
@@ -278,8 +293,9 @@ const AIR_HOCKEY = airHockey();
 const TETRIS = tetris();
 const GUESS = guessDrawing();
 const RHYTHM = rhythm();
+const LEADERBOARDS = leaderboards();
 const SUDOKU = sudoku();
-const GAMES = folder('Games', [MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TETRIS, AIR_HOCKEY, RHYTHM, GUESS, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
+const GAMES = folder('Games', [LEADERBOARDS, MINESWEEPER, WORDLE, SUDOKU, PINBALL, SNAKE, SOLITAIRE, G2048, TETRIS, AIR_HOCKEY, RHYTHM, GUESS, TICTACTOE, CONNECT4, CHECKERS, CHESS, PAINT, PIXEL_PAINT]);
 
 const BROWSER_APP = browser();
 
@@ -310,6 +326,7 @@ function airHockey(opts = {}) { return { name: 'Air Hockey', type: 'airhockey', 
 function tetris(opts = {}) { return { name: 'Tetris', type: 'tetris', ...opts }; }
 function guessDrawing(opts = {}) { return { name: 'Guess the Drawing', type: 'guessdraw', ...opts }; }
 function rhythm(opts = {}) { return { name: 'Rhythm Keys', type: 'rhythm', ...opts }; }
+function leaderboards(opts = {}) { return { name: 'Leaderboards', type: 'leaderboards', ...opts }; }
 function pixelPaint(opts = {}) { return { name: 'Pixel Paint', type: 'pixelpaint', ...opts }; }
 function pinball(opts = {}) { return { name: 'Pinball', type: 'pinball', ...opts }; }
 function snake(opts = {}) { return { name: 'Snake', type: 'snake', ...opts }; }

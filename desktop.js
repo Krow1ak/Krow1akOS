@@ -407,7 +407,8 @@ function paintSel() {
 function closeWin(W) {
   const wasActive = W.el.classList.contains('active');
   if (W.sid) mpSend({ t: 'close', sid: W.sid });
-  W.onClose && W.onClose(); W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1);
+  try { W.onClose && W.onClose(); } catch (e) { console.error(e); } // a broken clean-up must never keep a window open
+  W.el.remove(); W.tk.remove(); wins.splice(wins.indexOf(W), 1);
   if (wasActive || !mp.remote) focusTop();
 }
 
@@ -3529,6 +3530,7 @@ function openPixelPaint() {
     if (d.doc) { loadDoc(d.doc); fit(false); render(); saveLater(); }
     else if (d.op === 'px' && Array.isArray(d.d)) { for (let k = 0; k + 2 < d.d.length; k += 3) { const f = frames[d.d[k]]; if (f && d.d[k + 1] < f.length) f[d.d[k + 1]] = d.d[k + 2] >>> 0; } render(); saveLater(); }
   });
+  const prevClose = W.onClose;
   W.onClose = () => { prevClose && prevClose(); flush(); store.set('pixel-doc', serialize()); clearInterval(ants); clearInterval(anim); document.removeEventListener('keydown', onKey); document.removeEventListener('keyup', onKey); pxWin = null; };
   pxWin = W;
   loadDoc(store.get('pixel-doc', null));
@@ -5030,19 +5032,28 @@ function openLeaderboards(gameId = store.get('lb-game', 'tetris'), sel = {}) {
 }
 
 /* ---------- settings ---------- */
+// light or dark windows: each person's own choice, kept in their browser ('auto' follows the computer)
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+function applyTheme() { const t = store.get('theme', 'light'); document.documentElement.classList.toggle('dark', t === 'dark' || (t === 'auto' && darkQuery.matches)); }
+darkQuery.addEventListener?.('change', applyTheme);
+applyTheme();
 const RESOLUTIONS = [['Widescreen 16:9', [[1280, 720], [1366, 768], [1600, 900], [1920, 1080], [2560, 1440]]],
   ['16:10', [[1280, 800], [1440, 900], [1680, 1050], [1920, 1200]]], ['Square-ish 4:3 and 5:4', [[1024, 768], [1280, 1024]]]];
 let setWin = null;
 function openSettings() {
   if (setWin) { focusWin(setWin); return setWin; }
   const W = makeWin({ title: 'Settings', icon: I.settings, w: 460, h: 560 });
-  W.body.innerHTML = '<div class="set"><h3>Display resolution</h3><p class="dim">The desktop is drawn at this size and scaled to fit your browser window, '
+  W.body.innerHTML = '<div class="set"><h3>Appearance</h3><div class="set-theme"></div><h3>Display resolution</h3><p class="dim">The desktop is drawn at this size and scaled to fit your browser window, '
     + 'with black bars if the shapes differ. In multiplayer, pick the same as the others so everyone has the same space.</p>'
     + '<p class="set-now"></p><div class="set-list"></div><div class="set-room"></div><div class="set-foot"><button class="okbtn set-apply">Apply</button></div></div>';
   const q = sel => W.body.querySelector(sel);
   let choice = displayChoice();
   const key = c => c.w ? `${c.w}x${c.h}` : 'fit';
   W.render = () => {
+    const theme = store.get('theme', 'light');
+    q('.set-theme').innerHTML = [['light', 'Light'], ['dark', 'Dark'], ['auto', 'Same as my computer']].map(([v, l]) => `<label class="set-opt"><input type="radio" name="theme" value="${v}"${v === theme ? ' checked' : ''}> ${l}</label>`).join('')
+      + '<p class="dim">Windows, menus and panels. Only changes it for you.</p>';
+    q('.set-theme').querySelectorAll('input').forEach(i => i.onchange = () => { store.set('theme', i.value); applyTheme(); });
     q('.set-now').textContent = `Your browser window: ${window.innerWidth} × ${window.innerHeight}. Desktop now: ${Math.round(UI.w)} × ${Math.round(UI.h)}.`;
     const opt = (k, label, extra = '') => `<label class="set-opt"><input type="radio" name="res" value="${k}"${k === key(choice) ? ' checked' : ''}> ${label}${extra}</label>`;
     q('.set-list').innerHTML = RESOLUTIONS.map(([group, list]) => `<h4>${esc(group)}</h4>` + list.map(([w, h]) => opt(`${w}x${h}`, `${w} × ${h}`, w === 1600 && h === 900 ? ' <span class="dim">(default)</span>' : '')).join('')).join('')

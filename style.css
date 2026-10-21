@@ -946,3 +946,43 @@ textarea.pad.nowrap{white-space:pre;overflow-x:auto}
 .rk-sidetag{font-style:normal;font-size:9px;font-weight:800;padding:1px 4px;border-radius:3px;vertical-align:1px}
 .rk-sidetag.bf{background:#123a52;color:#4fc3ff}.rk-sidetag.opp{background:#4a1626;color:#ff6b8a}
 .rk-teams{display:flex;flex-direction:column;gap:2px;margin-bottom:4px;font-weight:700}.rk-teams .bf{color:#4fc3ff}.rk-teams .opp{color:#ff6b8a}
+
+/* ---------- dark theme (Settings > Appearance) ----------
+   Windows, menus, panels and buttons go dark; games with their own look keep it. */
+html.dark{--ink:#e4e7ec;--ink-soft:#9aa6b4;--paper:#1c1f24;--pane:#22262c;--sel:#2b4a68;--sel-edge:#4f8fc8;color-scheme:dark}
+html.dark .wbody{background:var(--paper);color:var(--ink)}
+html.dark .tools,html.dark .details,html.dark .status,html.dark .msg-foot,html.dark .pt-tools,html.dark .pxp-tools,html.dark .pxp-frames,html.dark .pxp-side{background:#262a31;border-color:#353b44;color:var(--ink)}
+html.dark .menu{background:#262a31;border-color:#353b44}
+html.dark .menu>button,html.dark .menu button{color:var(--ink)}
+html.dark .drop{background:#2a2e35;border-color:#454c57;color:var(--ink)}
+html.dark .drop button:hover,html.dark .tbtn:hover,html.dark .sm-item:hover,html.dark .cal-head button:hover{background:#34404f;border-color:#4f6f92}
+html.dark .tbtn{color:var(--ink)}
+html.dark .side{background:var(--pane);border-color:#353b44}
+html.dark .fi{color:var(--ink)}
+html.dark .fi:hover{background:#2a3644;border-color:#3d5a78}
+html.dark .addr,html.dark .search,html.dark .wb-url,html.dark .mp-row input,html.dark .mp-link input,html.dark .mp-msg,html.dark .mp-in,
+html.dark .lbx-foot input,html.dark .pt-custom,html.dark .pxp-custom,html.dark .pt-zb,html.dark input[type=text],html.dark input[type=number],html.dark input[type=search],html.dark select{background:#15181c;color:var(--ink);border-color:#4a5360}
+html.dark textarea.pad{background:var(--paper);color:var(--ink)}
+html.dark .pv{background:#15181c}
+html.dark .bar{background:#2d3238;border-color:#4a5360}
+html.dark .okbtn{background:linear-gradient(#3a3f47,#2c3037);border-color:#59616d;color:var(--ink)}
+html.dark .okbtn:hover{background:linear-gradient(#45505e,#343c47);border-color:#6d8bb0}
+html.dark .mp,html.dark .mpp,html.dark .set,html.dark .lbx,html.dark .bg{background:#1c1f24;color:var(--ink)}
+html.dark .mp-list,html.dark .mp-box,html.dark .mp-log,html.dark .pxp-box{background:#23272d;border-color:#3a414b;color:var(--ink)}
+html.dark .mp-song{color:var(--ink)}html.dark .mp-song:hover,html.dark .pt-b:hover{background:#2a3644}
+html.dark .mp-bubble{background:#2a2e35;color:var(--ink)}
+html.dark .lb-tabs{background:#262a31;border-color:#3a414b}html.dark .lb-tab{background:#2d3238;border-color:#3a414b;color:var(--ink)}html.dark .lb-tab.on{background:var(--paper)}
+html.dark .lb-table th,html.dark .lbx-table th{background:#22262c;color:#9aa6b4}html.dark .lb-table tr.today td{background:#3b3520}
+html.dark .lbx-games{background:#22262c;border-color:#353b44}html.dark .lbx-games button{color:var(--ink)}
+html.dark .lbx-games button:hover{background:#2a3644;border-color:#3d5a78}html.dark .lbx-games button.on{background:#2b4a68;border-color:#4f8fc8}
+html.dark .lbx-head,html.dark .lbx-foot{border-color:#353b44}html.dark .lbx-head h3{color:var(--ink)}html.dark .lbx-table td{border-color:#2d3238}
+html.dark .lbx-table tr.me td{background:#3b3520}html.dark .lbx-msg{color:#9aa6b4}html.dark .lbx-day button{background:#2d3238;border-color:#4a5360;color:var(--ink)}
+html.dark .cal-in,html.dark .sm-left{background:#23272d;border-color:#3a414b;color:var(--ink)}
+html.dark .day{color:var(--ink)}html.dark .day:hover{background:#2a3644;border-color:#3d5a78}html.dark .day.today{background:#2b4a68;border-color:#4f8fc8}
+html.dark .cal-long{color:#7fb6ee}
+html.dark .wb-page,html.dark .wb-start{background:#1c1f24}html.dark .wb-tile{color:var(--ink)}html.dark .wb-tile:hover{background:#2a2e35}
+html.dark .set h3,html.dark .set h4,html.dark .mpp h4,html.dark .bg-status{color:var(--ink)}
+html.dark .dim,html.dark .mp-fine{color:#9aa6b4}
+html.dark .mx,html.dark #volpop .mx{background:#23272d;border-color:#3a414b;color:var(--ink)}
+html.dark .side h4{color:#8fb3d9}html.dark .side .sl{color:var(--ink)}html.dark .side .sl:hover{background:#2a3644}
+html.dark .fi .ic img.th{border-color:#3a414b;background:#2a2e35}
